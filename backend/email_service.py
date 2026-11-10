@@ -46,9 +46,17 @@ def send_code(to_email: str, code: str) -> bool:
 
     context = ssl.create_default_context()
     try:
-        with smtplib.SMTP_SSL(host, port, context=context) as server:
-            server.login(user, password)
-            server.sendmail(user, to_email, msg.as_string())
+        if port == 465:
+            # SSL 直连（QQ邮箱等）
+            with smtplib.SMTP_SSL(host, port, context=context) as server:
+                server.login(user, password)
+                server.sendmail(user, to_email, msg.as_string())
+        else:
+            # 587 端口用 STARTTLS（Outlook / Gmail 等）
+            with smtplib.SMTP(host, port) as server:
+                server.starttls(context=context)
+                server.login(user, password)
+                server.sendmail(user, to_email, msg.as_string())
         print(f"[邮件] 已发送验证码到 {to_email}")
         return True
     except Exception as e:
