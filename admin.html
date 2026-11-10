@@ -30,6 +30,9 @@
 
         <h2 style="color:#fff;margin:30px 0 16px;">帖子管理</h2>
         <div id="adminPostList" class="admin-list"></div>
+
+        <h2 style="color:#fff;margin:30px 0 16px;">用户管理</h2>
+        <div id="adminUserList" class="admin-list"></div>
     </main>
 
     <script src="js/auth.js"></script>
@@ -76,6 +79,36 @@
             } catch (e) { alert('删除失败：' + e.message); }
         }
 
+        async function loadUsers() {
+            try {
+                const res = await Auth.get('/api/admin/users');
+                const users = await res.json();
+                const wrap = document.getElementById('adminUserList');
+                const me = Auth.user.id;
+                if (!users.length) { wrap.innerHTML = '<div style="color:#6b6b76;">没有用户</div>'; return; }
+                wrap.innerHTML = users.map(function (u) {
+                    const badge = u.is_admin ? ' <span style="color:#c6dd4e;font-size:12px;">[管理员]</span>' : '';
+                    const canDel = u.id !== me;
+                    return '<div class="admin-item">' +
+                        '<div class="admin-item-info">' +
+                            '<div class="admin-item-title">' + escapeHtml(u.username) + badge + '</div>' +
+                            '<div class="admin-item-meta">' + escapeHtml(u.email || '无邮箱') + ' · 注册于 ' + (u.created_at || '-') + '</div>' +
+                        '</div>' +
+                        (canDel ? '<button class="btn-danger" onclick="delUser(' + u.id + ')">删除账号</button>' : '<span style="color:#6b6b76;font-size:13px;">（当前账号）</span>') +
+                    '</div>';
+                }).join('');
+            } catch (e) {}
+        }
+
+        async function delUser(id) {
+            if (!confirm('确定删除这个账号？该用户的所有帖子和评论也会一起删除')) return;
+            try {
+                await Auth.del('/api/admin/users/' + id);
+                loadStats();
+                loadUsers();
+            } catch (e) { alert('删除失败：' + e.message); }
+        }
+
         function doLogout() { Auth.logout(); window.location.href = 'login.html'; }
 
         function escapeHtml(s) {
@@ -86,6 +119,7 @@
 
         loadStats();
         loadPosts();
+        loadUsers();
     </script>
 </body>
 </html>

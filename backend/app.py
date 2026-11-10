@@ -374,6 +374,40 @@ def admin_stats():
         conn.close()
 
 
+@app.route("/api/admin/users", methods=["GET"])
+@admin_required
+def admin_users():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, username, email, is_admin, created_at FROM users ORDER BY id"
+        ).fetchall()
+        return jsonify([dict(r) for r in rows])
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/users/<int:uid>", methods=["DELETE"])
+@admin_required
+def admin_delete_user(uid):
+    current = request.current_user
+    if uid == current["id"]:
+        return jsonify({"error": "不能删除自己"}), 400
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+        if not user:
+            return jsonify({"error": "用户不存在"}), 404
+        # 级联删除该用户的帖子和评论（简化处理）
+        conn.execute("DELETE FROM comments WHERE author IN (SELECT username FROM users WHERE id=?)", (uid,))
+        conn.execute("DELETE FROM posts WHERE author=(SELECT username FROM users WHERE id=?)", (uid,))
+        conn.execute("DELETE FROM users WHERE id=?", (uid,))
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
 @app.route("/")
 def home():
     return send_from_directory(FRONTEND_DIR, "index.html")
