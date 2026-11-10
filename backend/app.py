@@ -506,16 +506,16 @@ def _migrate():
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
 
-            # 修复：PostgreSQL 里如果 token 列被错误建成 INTEGER，改成 TEXT
+            # 修复：PostgreSQL 里如果 token 列被错误建成 INTEGER，删掉重建为 TEXT
             if is_pg and table == "users" and "token" in existing:
                 col_type = conn.execute(
                     "SELECT data_type FROM information_schema.columns WHERE table_name=%s AND column_name='token'",
                     (table,)
                 ).fetchone()
                 if col_type and col_type["data_type"] == "integer":
-                    conn.execute("ALTER TABLE users ALTER COLUMN token TYPE TEXT USING token::TEXT")
-                    conn.execute("ALTER TABLE users ALTER COLUMN token SET DEFAULT ''")
-                    print("[迁移] 已修复 users.token 列类型为 TEXT")
+                    conn.execute("ALTER TABLE users DROP COLUMN token")
+                    conn.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
+                    print("[迁移] 已重建 users.token 列为 TEXT")
         conn.commit()
 
         # 清理旧种子帖子
