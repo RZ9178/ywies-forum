@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - YWIES 论坛</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+    <div class="auth-box">
+        <a href="index.html" class="auth-logo">YWIES 论坛</a>
+        <h1>注册新账号</h1>
+
+        <div class="auth-form">
+            <div class="form-group">
+                <label>邮箱</label>
+                <input type="email" id="regEmail" placeholder="you@ywies.com">
+            </div>
+
+            <div class="form-group">
+                <label>验证码</label>
+                <div class="code-row">
+                    <input type="text" id="regCode" placeholder="6 位验证码" maxlength="6">
+                    <button class="btn-outline" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>昵称（可选）</label>
+                <input type="text" id="regName" placeholder="怎么称呼你">
+            </div>
+
+            <div class="form-group">
+                <label>密码（至少 6 位）</label>
+                <input type="password" id="regPassword" placeholder="设置密码">
+            </div>
+
+            <button class="btn-primary" id="regBtn" onclick="doRegister()">注册</button>
+
+            <p class="auth-switch">已有账号？<a href="login.html">直接登录</a></p>
+        </div>
+    </div>
+
+    <script src="js/auth.js"></script>
+    <script>
+        let cooldown = 0;
+        async function sendCode() {
+            const email = document.getElementById('regEmail').value.trim();
+            if (!email) { alert('请先输入邮箱'); return; }
+            const btn = document.getElementById('sendCodeBtn');
+            btn.disabled = true;
+            try {
+                const res = await Auth.post('/api/send-code', { email: email });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '发送失败');
+                alert('验证码已发送，5 分钟内有效');
+                cooldown = 60;
+                const timer = setInterval(function () {
+                    cooldown--;
+                    btn.textContent = cooldown > 0 ? cooldown + 's' : '重新发送';
+                    btn.disabled = cooldown > 0;
+                    if (cooldown <= 0) clearInterval(timer);
+                }, 1000);
+            } catch (e) {
+                alert(e.message);
+                btn.disabled = false;
+            }
+        }
+
+        async function doRegister() {
+            const email = document.getElementById('regEmail').value.trim();
+            const code = document.getElementById('regCode').value.trim();
+            const username = document.getElementById('regName').value.trim();
+            const password = document.getElementById('regPassword').value.trim();
+            if (!email || !code || !password) { alert('请填完整'); return; }
+            const btn = document.getElementById('regBtn');
+            btn.disabled = true;
+            try {
+                const res = await Auth.post('/api/register', {
+                    email: email, code: code, username: username, password: password
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '注册失败');
+                Auth.save(data.token, data.user);
+                window.location.href = 'index.html';
+            } catch (e) {
+                alert(e.message);
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

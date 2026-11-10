@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - YWIES 论坛</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <img src="school-badge.png" class="brand-logo" alt="校徽">
+                <span class="brand-name">管理后台</span>
+            </div>
+            <div class="topbar-actions">
+                <a href="index.html" class="btn">返回首页</a>
+                <button class="btn" onclick="doLogout()">退出登录</button>
+            </div>
+        </div>
+    </header>
+
+    <main style="max-width:900px;margin:0 auto;padding:24px;">
+        <h2 style="color:#fff;margin-bottom:20px;">数据统计</h2>
+        <div class="stats-row" id="statsRow">
+            <div class="stat-card"><div class="stat-num" id="statUsers">-</div><div class="stat-label">注册用户</div></div>
+            <div class="stat-card"><div class="stat-num" id="statPosts">-</div><div class="stat-label">帖子总数</div></div>
+            <div class="stat-card"><div class="stat-num" id="statComments">-</div><div class="stat-label">评论总数</div></div>
+        </div>
+
+        <h2 style="color:#fff;margin:30px 0 16px;">帖子管理</h2>
+        <div id="adminPostList" class="admin-list"></div>
+    </main>
+
+    <script src="js/auth.js"></script>
+    <script>
+        if (!Auth.isAdmin()) {
+            alert('需要管理员权限');
+            window.location.href = 'index.html';
+        }
+
+        async function loadStats() {
+            try {
+                const res = await Auth.get('/api/admin/stats');
+                const data = await res.json();
+                document.getElementById('statUsers').textContent = data.users;
+                document.getElementById('statPosts').textContent = data.posts;
+                document.getElementById('statComments').textContent = data.comments;
+            } catch (e) {}
+        }
+
+        async function loadPosts() {
+            try {
+                const res = await Auth.get('/api/posts');
+                const posts = await res.json();
+                const wrap = document.getElementById('adminPostList');
+                if (!posts.length) { wrap.innerHTML = '<div style="color:#6b6b76;">没有帖子</div>'; return; }
+                wrap.innerHTML = posts.map(function (p) {
+                    return '<div class="admin-item">' +
+                        '<div class="admin-item-info">' +
+                            '<div class="admin-item-title">' + escapeHtml(p.title) + '</div>' +
+                            '<div class="admin-item-meta">' + escapeHtml(p.author) + ' · ' + p.replies + ' 评论 · ' + p.views + ' 浏览 · ' + p.created_at + '</div>' +
+                        '</div>' +
+                        '<button class="btn-danger" onclick="delPost(' + p.id + ')">删除帖子</button>' +
+                    '</div>';
+                }).join('');
+            } catch (e) {}
+        }
+
+        async function delPost(id) {
+            if (!confirm('确定删除这条帖子？评论也会一起删掉')) return;
+            try {
+                await Auth.del('/api/posts/' + id);
+                loadStats();
+                loadPosts();
+            } catch (e) { alert('删除失败：' + e.message); }
+        }
+
+        function doLogout() { Auth.logout(); window.location.href = 'login.html'; }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        loadStats();
+        loadPosts();
+    </script>
+</body>
+</html>

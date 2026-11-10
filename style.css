@@ -784,3 +784,157 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     padding: 10px 10px;
 }
 
+/* ============================================
+   登录 / 注册页
+   ============================================ */
+.auth-page {
+    background: #0a0a0c;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.auth-box {
+    width: 100%;
+    max-width: 400px;
+    padding: 40px 32px;
+}
+.auth-logo {
+    display: block;
+    font-size: 20px;
+    font-weight: 800;
+    color: #c6dd4e;
+    text-decoration: none;
+    margin-bottom: 24px;
+}
+.auth-box h1 {
+    font-size: 24px;
+    color: #fff;
+    margin-bottom: 24px;
+}
+.auth-form .form-group { margin-bottom: 16px; }
+.auth-form label {
+    display: block;
+    font-size: 13px;
+    color: #9b9ba4;
+    margin-bottom: 6px;
+}
+.auth-form input {
+    width: 100%;
+    padding: 11px 14px;
+    background: #16161a;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+}
+.auth-form input:focus { border-color: #c6dd4e; }
+.code-row { display: flex; gap: 8px; }
+.code-row input { flex: 1; }
+.btn-outline {
+    padding: 0 14px;
+    background: transparent;
+    border: 1px solid #c6dd4e;
+    color: #c6dd4e;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary {
+    width: 100%;
+    padding: 12px;
+    background: #c6dd4e;
+    color: #1a1a1a;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+}
+.btn-primary:disabled { opacity: 0.6; }
+.auth-switch {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 13px;
+    color: #6b6b76;
+}
+.auth-switch a { color: #c6dd4e; text-decoration: none; }
+
+/* ============================================
+   导航栏用户区
+   ============================================ */
+.user-name {
+    color: #c6dd4e;
+    font-size: 14px;
+    margin-right: 8px;
+}
+#userArea { display: flex; align-items: center; gap: 8px; }
+
+/* ============================================
+   后台管理页
+   ============================================ */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+.stat-card {
+    background: #16161a;
+    border: 1px solid #26262c;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+}
+.stat-num {
+    font-size: 32px;
+    font-weight: 800;
+    color: #c6dd4e;
+}
+.stat-label {
+    font-size: 13px;
+    color: #9b9ba4;
+    margin-top: 4px;
+}
+.admin-list { display: flex; flex-direction: column; gap: 10px; }
+.admin-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #16161a;
+    border: 1px solid #26262c;
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+.admin-item-title { color: #fff; font-size: 15px; font-weight: 600; }
+.admin-item-meta { color: #6b6b76; font-size: 12px; margin-top: 4px; }
+.btn-danger {
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid #e74c3c;
+    color: #e74c3c;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-danger:hover { background: #e74c3c; color: #fff; }
+
+/* 评论删除小按钮 */
+.comment-del {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #3a3a42;
+    color: #6b6b76;
+    border-radius: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.comment-del:hover { border-color: #e74c3c; color: #e74c3c; }
+

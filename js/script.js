@@ -24,6 +24,7 @@ const K_COINED = 'ywies_coined';
 const K_AUTHOR = 'ywies_author';
 
 window.addEventListener('DOMContentLoaded', function () {
+    initAuth();
     fetchPosts();
     fetchTags();
     bindTabs();
@@ -33,13 +34,26 @@ window.addEventListener('DOMContentLoaded', function () {
     bindPostModal();
 });
 
+function initAuth() {
+    const logged = Auth.isLoggedIn();
+    document.getElementById('loginBtn').hidden = logged;
+    document.getElementById('registerBtn').hidden = logged;
+    document.getElementById('userArea').hidden = !logged;
+    if (logged) {
+        document.getElementById('userName').textContent = Auth.user.username;
+        document.getElementById('adminBtn').hidden = !Auth.isAdmin();
+    }
+    document.getElementById('logoutBtn').addEventListener('click', function () {
+        Auth.logout();
+        location.reload();
+    });
+}
+
 async function fetchPosts() {
     try {
-        const res = await fetch(API);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const res = await Auth.get(API);
         allPosts = await res.json();
     } catch (e) {
-        console.warn('[首页] 拉取失败：', e.message);
         allPosts = [];
     }
     render();
@@ -47,8 +61,7 @@ async function fetchPosts() {
 
 async function fetchTags() {
     try {
-        const res = await fetch(TAGS_API);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const res = await Auth.get(TAGS_API);
         allTags = await res.json();
     } catch (e) { allTags = []; }
     renderTagBar();
@@ -229,7 +242,12 @@ function bindPostModal() {
 }
 
 function openPostModal() {
-    document.getElementById('postAuthor').value = localStorage.getItem(K_AUTHOR) || '';
+    if (!Auth.isLoggedIn()) {
+        alert('请先登录再发帖');
+        window.location.href = 'login.html';
+        return;
+    }
+    document.getElementById('postAuthor').value = Auth.user.username || '';
     document.getElementById('postTitle').value = '';
     document.getElementById('postContent').value = '';
     document.getElementById('postImage').value = '';
@@ -292,25 +310,17 @@ function renderTagPicker() {
 async function submitPost() {
     const title = document.getElementById('postTitle').value.trim();
     const content = document.getElementById('postContent').value.trim();
-    const author = document.getElementById('postAuthor').value.trim() || '匿名同学';
-
     if (!title) { alert('请输入标题'); return; }
     if (!content) { alert('请输入内容'); return; }
-
-    localStorage.setItem(K_AUTHOR, author);
 
     const btn = document.getElementById('submitPostBtn');
     btn.disabled = true;
     btn.textContent = '发布中...';
 
     try {
-        const res = await fetch(API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                title: title, content: content, author: author,
-                tags: selectedTags.join(','), image: uploadedImage
-            })
+        const res = await Auth.post(API, {
+            title: title, content: content,
+            tags: selectedTags.join(','), image: uploadedImage
         });
         if (!res.ok) {
             const err = await res.json();
@@ -371,12 +381,11 @@ function bindDetailModal() {
 
 async function openDetail(postId) {
     try {
-        const res = await fetch(API + '/' + postId);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const res = await Auth.get(API + '/' + postId);
         currentPost = await res.json();
     } catch (e) { return; }
     try {
-        const res = await fetch(API + '/' + postId + '/comments');
+        const res = await Auth.get(API + '/' + postId + '/comments');
         allComments = res.ok ? await res.json() : [];
     } catch (e) { allComments = []; }
 
@@ -404,9 +413,32 @@ function renderDetail() {
     document.getElementById('detailContent').textContent = p.content || '';
     document.getElementById('detailTime').textContent = formatTime(p.created_at);
     document.getElementById('commentCount').textContent = allComments.length;
-    document.getElementById('commentAuthor').value = localStorage.getItem(K_AUTHOR) || '';
+    // 登录后显示用户名
+    document.getElementById('commentAuthor').value = Auth.isLoggedIn() ? Auth.user.username : '';
+    // 删除帖子按钮：管理员或楼主
+    let delBtn = document.getElementById('detailDeletePost');
+    if (!delBtn) {
+        delBtn = document.createElement('button');
+        delBtn.id = 'detailDeletePost';
+        delBtn.className = 'footer-btn btn-danger';
+        delBtn.textContent = '删除帖子';
+        delBtn.addEventListener('click', deleteCurrentPost);
+        document.querySelector('.detail-footer').insertBefore(delBtn, document.getElementById('footerLike'));
+    }
+    const canDelete = Auth.isLoggedIn() && (Auth.isAdmin() || Auth.user.username === p.author);
+    delBtn.style.display = canDelete ? '' : 'none';
     renderComments();
     updateFooterButtons();
+}
+
+async function deleteCurrentPost() {
+    if (!currentPost) return;
+    if (!confirm('确定删除这条帖子？')) return;
+    try {
+        await Auth.del(API + '/' + currentPost.id);
+        closeDetail();
+        await fetchPosts();
+    } catch (e) { alert('删除失败：' + e.message); }
 }
 
 function renderComments() {
@@ -418,43 +450,60 @@ function renderComments() {
         return;
     }
     const author = currentPost ? currentPost.author : '';
+    const me = Auth.isLoggedIn() ? Auth.user.username : '';
+    const isAdmin = Auth.isAdmin();
     list.innerHTML = sorted.map(function (c, i) {
         const floor = commentSort === 'earliest' ? (i + 1) : (sorted.length - i);
         const isAuthor = c.author === author;
+        const canDel = isAdmin || c.author === me;
         return '<div class="comment-item">' +
             '<div class="comment-head">' +
                 '<div class="comment-avatar"></div>' +
                 '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
                 (isAuthor ? '<span class="comment-author-tag">楼主</span>' : '') +
                 '<span class="comment-floor">' + floor + 'F</span>' +
+                (canDel ? '<button class="comment-del" data-cid="' + c.id + '">删</button>' : '') +
             '</div>' +
             '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
             '<div class="comment-time">' + formatTime(c.created_at) + '</div>' +
         '</div>';
     }).join('');
+    // 绑定删除评论
+    list.querySelectorAll('.comment-del').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+            if (!confirm('删除这条评论？')) return;
+            try {
+                await Auth.del(API + '/' + currentPost.id + '/comments/' + btn.getAttribute('data-cid'));
+                const res = await Auth.get(API + '/' + currentPost.id + '/comments');
+                allComments = res.ok ? await res.json() : allComments;
+                document.getElementById('commentCount').textContent = allComments.length;
+                renderComments();
+            } catch (e) { alert('删除失败：' + e.message); }
+        });
+    });
 }
 
 async function submitComment() {
+    if (!Auth.isLoggedIn()) {
+        alert('请先登录再评论');
+        window.location.href = 'login.html';
+        return;
+    }
     const input = document.getElementById('commentInput');
-    const authorInput = document.getElementById('commentAuthor');
     const text = input.value.trim();
-    const author = authorInput.value.trim() || '匿名同学';
     if (!text || !currentPost) return;
-    localStorage.setItem(K_AUTHOR, author);
     try {
-        await fetch(API + '/' + currentPost.id + '/comments', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text, author: author })
-        });
+        const res = await Auth.post(API + '/' + currentPost.id + '/comments', { content: text });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || '评论失败');
+        }
         input.value = '';
-        const res = await fetch(API + '/' + currentPost.id + '/comments');
-        allComments = res.ok ? await res.json() : allComments;
+        const res2 = await Auth.get(API + '/' + currentPost.id + '/comments');
+        allComments = res2.ok ? await res2.json() : allComments;
         document.getElementById('commentCount').textContent = allComments.length;
         renderComments();
-    } catch (e) {
-        console.warn('[评论] 提交失败', e);
-    }
+    } catch (e) { alert('评论失败：' + e.message); }
 }
 
 function updateFooterButtons() {

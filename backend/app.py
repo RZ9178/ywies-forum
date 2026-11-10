@@ -1,27 +1,41 @@
 # app.py - 校园发帖平台后端主程序
 # 接口：
-#   POST /chat                       -> AI 对话
-#   GET  /api/posts                  -> 帖子列表
-#   POST /api/posts                  -> 发新帖（title, content, author, tags, image）
-#   GET  /api/posts/<id>             -> 单条帖子详情
-#   GET  /api/posts/<id>/comments    -> 帖子评论列表
-#   POST /api/posts/<id>/comments    -> 发表评论
-#   GET  /api/tags                   -> 所有已使用过的标签（去重）
-#   POST /api/upload                 -> base64 图片上传（返回 data URL）
+#   POST /api/send-code            -> 发送邮箱验证码
+#   POST /api/register             -> 注册 {email, password, code}
+#   POST /api/login                -> 登录 {email, password}
+#   GET  /api/me                   -> 当前登录用户信息
+#   GET  /api/posts                -> 帖子列表
+#   POST /api/posts                -> 发新帖（需登录）
+#   GET  /api/posts/<id>           -> 帖子详情
+#   DELETE /api/posts/<id>         -> 删帖（管理员或楼主）
+#   GET  /api/posts/<id>/comments  -> 评论列表
+#   POST /api/posts/<id>/comments  -> 发评论（需登录）
+#   DELETE /api/posts/<id>/comments/<cid>  -> 删评论（管理员或评论者）
+#   GET  /api/tags                 -> 所有标签
+#   GET  /api/admin/stats          -> 注册用户数等统计（管理员）
 
 import os
+import re
 import sqlite3
-import base64
+import secrets
+import time
+from functools import wraps
 
 from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.security import generate_password_hash, check_password_hash
+
 from ai_client import ai_reply
+from email_service import send_code
 
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "school_posts.db")
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..")
-# 图片最大 ~2MB（base64 后约 2.7MB）
-MAX_IMAGE_BYTES = 2 * 1024 * 1024
+
+_CODE_STORE = {}
+CODE_TTL = 300
+_SESSION_STORE = {}
+SESSION_TTL = 7 * 24 * 3600
 
 
 def get_db():
@@ -30,16 +44,145 @@ def get_db():
     return conn
 
 
-# ============================ 跨域 ============================
 @app.after_request
 def add_cors_headers(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return resp
 
 
-# ============================ AI 对话 ============================
+def _get_current_user():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token = auth[7:].strip()
+    sess = _SESSION_STORE.get(token)
+    if not sess:
+        return None
+    user_id, expires_at = sess
+    if time.time() > expires_at:
+        _SESSION_STORE.pop(token, None)
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id, email, username, is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def login_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        user = _get_current_user()
+        if not user:
+            return jsonify({"error": "未登录"}), 401
+        request.current_user = user
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def admin_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        user = _get_current_user()
+        if not user:
+            return jsonify({"error": "未登录"}), 401
+        if not user.get("is_admin"):
+            return jsonify({"error": "需要管理员权限"}), 403
+        request.current_user = user
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/api/send-code", methods=["POST"])
+def send_code_api():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return jsonify({"error": "邮箱格式不对"}), 400
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+        if row:
+            return jsonify({"error": "这个邮箱已经注册过了"}), 400
+    finally:
+        conn.close()
+    code = f"{secrets.randbelow(1000000):06d}"
+    _CODE_STORE[email] = (code, time.time() + CODE_TTL)
+    ok = send_code(email, code)
+    if not ok:
+        return jsonify({"error": "邮件发送失败"}), 500
+    return jsonify({"ok": True, "message": "验证码已发送（5 分钟内有效）"})
+
+
+@app.route("/api/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+    code = (data.get("code") or "").strip()
+    username = (data.get("username") or "").strip() or email.split("@")[0]
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return jsonify({"error": "邮箱格式不对"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "密码至少 6 位"}), 400
+    stored = _CODE_STORE.get(email)
+    if not stored or stored[0] != code:
+        return jsonify({"error": "验证码不对"}), 400
+    if time.time() > stored[1]:
+        _CODE_STORE.pop(email, None)
+        return jsonify({"error": "验证码已过期"}), 400
+    pwd_hash = generate_password_hash(password)
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
+            (email, username, pwd_hash),
+        )
+        conn.commit()
+        user_id = cur.lastrowid
+        _CODE_STORE.pop(email, None)
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "这个邮箱已经注册过了"}), 400
+    finally:
+        conn.close()
+    token = secrets.token_urlsafe(32)
+    _SESSION_STORE[token] = (user_id, time.time() + SESSION_TTL)
+    return jsonify({"token": token, "user": {"id": user_id, "email": email, "username": username, "is_admin": 0}})
+
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        if not row:
+            return jsonify({"error": "邮箱或密码不对"}), 401
+        if not check_password_hash(row["password"], password):
+            return jsonify({"error": "邮箱或密码不对"}), 401
+        token = secrets.token_urlsafe(32)
+        _SESSION_STORE[token] = (row["id"], time.time() + SESSION_TTL)
+        return jsonify({
+            "token": token,
+            "user": {"id": row["id"], "email": row["email"], "username": row["username"], "is_admin": row["is_admin"]}
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/me", methods=["GET"])
+def me():
+    user = _get_current_user()
+    if not user:
+        return jsonify({"error": "未登录"}), 401
+    return jsonify({"user": user})
+
+
 @app.route("/chat", methods=["POST", "OPTIONS"])
 def chat():
     if request.method == "OPTIONS":
@@ -58,7 +201,6 @@ def chat():
     return jsonify({"reply": reply})
 
 
-# ============================ 帖子 ============================
 def _row_to_dict(row, reply_count=None):
     return {
         "id": row["id"],
@@ -80,12 +222,8 @@ def list_posts():
     conn = get_db()
     try:
         rows = conn.execute(
-            """
-            SELECT p.*,
-                   (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS reply_count
-            FROM posts p
-            ORDER BY p.id DESC
-            """
+            """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
+               FROM posts p ORDER BY p.id DESC"""
         ).fetchall()
         return jsonify([_row_to_dict(r, r["reply_count"]) for r in rows])
     finally:
@@ -93,23 +231,20 @@ def list_posts():
 
 
 @app.route("/api/posts", methods=["POST"])
+@login_required
 def create_post():
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
-    author = (data.get("author") or "匿名同学").strip()
+    author = request.current_user["username"]
     tags = (data.get("tags") or "").strip()
     image = (data.get("image") or "").strip()
-
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
     if not content:
         return jsonify({"error": "内容不能为空"}), 400
-
-    # 图片大小限制
-    if image and len(image) > MAX_IMAGE_BYTES * 1.4:
-        return jsonify({"error": "图片太大，请压缩到 2MB 以内"}), 400
-
+    if image and len(image) > 2 * 1024 * 1024 * 1.4:
+        return jsonify({"error": "图片太大"}), 400
     conn = get_db()
     try:
         cur = conn.execute(
@@ -117,8 +252,7 @@ def create_post():
             (title, content, author, tags, image),
         )
         conn.commit()
-        new_id = cur.lastrowid
-        row = conn.execute("SELECT * FROM posts WHERE id = ?", (new_id,)).fetchone()
+        row = conn.execute("SELECT * FROM posts WHERE id=?", (cur.lastrowid,)).fetchone()
         return jsonify(_row_to_dict(row, 0)), 201
     finally:
         conn.close()
@@ -129,40 +263,53 @@ def get_post(post_id):
     conn = get_db()
     try:
         row = conn.execute(
-            """
-            SELECT p.*,
-                   (SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS reply_count
-            FROM posts p
-            WHERE p.id = ?
-            """,
+            """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
+               FROM posts p WHERE p.id=?""",
             (post_id,),
         ).fetchone()
-        if row is None:
+        if not row:
             return jsonify({"error": "帖子不存在"}), 404
         return jsonify(_row_to_dict(row, row["reply_count"]))
     finally:
         conn.close()
 
 
-# ============================ 评论 ============================
+@app.route("/api/posts/<int:post_id>", methods=["DELETE"])
+@login_required
+def delete_post(post_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "帖子不存在"}), 404
+        is_admin = request.current_user.get("is_admin")
+        is_author = row["author"] == request.current_user["username"]
+        if not is_admin and not is_author:
+            return jsonify({"error": "只能删除自己的帖子或由管理员删除"}), 403
+        conn.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
 @app.route("/api/posts/<int:post_id>/comments", methods=["GET"])
 def list_comments(post_id):
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM comments WHERE post_id = ? ORDER BY id ASC",
-            (post_id,),
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
         return jsonify([dict(r) for r in rows])
     finally:
         conn.close()
 
 
 @app.route("/api/posts/<int:post_id>/comments", methods=["POST"])
+@login_required
 def create_comment(post_id):
     data = request.get_json(silent=True) or {}
     content = (data.get("content") or "").strip()
-    author = (data.get("author") or "匿名同学").strip()
+    author = request.current_user["username"]
     if not content:
         return jsonify({"error": "内容不能为空"}), 400
     conn = get_db()
@@ -172,23 +319,36 @@ def create_comment(post_id):
             (post_id, author, content),
         )
         conn.commit()
-        return jsonify({
-            "id": cur.lastrowid, "post_id": post_id, "author": author,
-            "content": content, "likes": 0, "created_at": "刚刚"
-        }), 201
+        return jsonify({"id": cur.lastrowid, "post_id": post_id, "author": author,
+                        "content": content, "likes": 0, "created_at": "刚刚"}), 201
     finally:
         conn.close()
 
 
-# ============================ 动态标签 ============================
-@app.route("/api/tags", methods=["GET"])
-def list_tags():
-    """返回所有帖子里出现过的标签（去重，按使用频率排序）。"""
+@app.route("/api/posts/<int:post_id>/comments/<int:cid>", methods=["DELETE"])
+@login_required
+def delete_comment(post_id, cid):
     conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT tags FROM posts WHERE tags IS NOT NULL AND tags != ''"
-        ).fetchall()
+        row = conn.execute("SELECT author FROM comments WHERE id=? AND post_id=?", (cid, post_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "评论不存在"}), 404
+        is_admin = request.current_user.get("is_admin")
+        is_author = row["author"] == request.current_user["username"]
+        if not is_admin and not is_author:
+            return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
+        conn.execute("DELETE FROM comments WHERE id=?", (cid,))
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
+@app.route("/api/tags", methods=["GET"])
+def list_tags():
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT tags FROM posts WHERE tags IS NOT NULL AND tags != ''").fetchall()
         counter = {}
         for r in rows:
             for t in (r["tags"] or "").split(","):
@@ -201,27 +361,19 @@ def list_tags():
         conn.close()
 
 
-# ============================ 图片上传（base64） ============================
-@app.route("/api/upload", methods=["POST"])
-def upload_image():
-    """接收 base64 图片，直接返回 data URL 给前端存到帖子里。"""
-    data = request.get_json(silent=True) or {}
-    image = (data.get("image") or "").strip()
-    if not image:
-        return jsonify({"error": "没有图片数据"}), 400
-    if not image.startswith("data:image/"):
-        return jsonify({"error": "图片格式不对"}), 400
-    if len(image) > MAX_IMAGE_BYTES * 1.4:
-        return jsonify({"error": "图片太大，请压缩到 2MB 以内"}), 400
-    return jsonify({"url": image})
+@app.route("/api/admin/stats", methods=["GET"])
+@admin_required
+def admin_stats():
+    conn = get_db()
+    try:
+        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        post_count = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+        comment_count = conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
+        return jsonify({"users": user_count, "posts": post_count, "comments": comment_count})
+    finally:
+        conn.close()
 
 
-# 兼容老约定
-app.add_url_rule("/posts", "list_posts_legacy", list_posts)
-app.add_url_rule("/posts", "create_post_legacy", create_post, methods=["POST"])
-
-
-# ============================ 前端静态文件 ============================
 @app.route("/")
 def home():
     return send_from_directory(FRONTEND_DIR, "index.html")
@@ -233,22 +385,21 @@ def frontend_files(path):
 
 
 def _migrate():
-    """启动时自动补列 + 清理旧种子数据。"""
     conn = get_db()
     try:
         for table, cols in [
             ("posts", ["tags", "likes", "coins"]),
             ("comments", ["likes"]),
+            ("users", ["email", "is_admin"]),
         ]:
             existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
             for col in cols:
                 if col not in existing:
-                    coltype = "TEXT DEFAULT ''" if col == "tags" else "INTEGER DEFAULT 0"
+                    coltype = "TEXT DEFAULT ''" if col in ("tags", "email") else "INTEGER DEFAULT 0"
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
         conn.commit()
 
-        # 一次性清理：删掉旧版预置的种子帖子
         seed_titles = (
             "欢迎来到 YWIES 论坛",
             "CCA 招新｜机器人组还差一个机械臂手",
@@ -257,12 +408,22 @@ def _migrate():
             "距离阿哈出世还有最后1天",
         )
         placeholders = ",".join("?" for _ in seed_titles)
-        deleted = conn.execute(
-            f"DELETE FROM posts WHERE title IN ({placeholders})", seed_titles
-        ).rowcount
+        deleted = conn.execute(f"DELETE FROM posts WHERE title IN ({placeholders})", seed_titles).rowcount
         if deleted:
             conn.commit()
             print(f"[迁移] 已清理 {deleted} 条旧种子测试帖子")
+
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@ywies.local")
+        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        admin_row = conn.execute("SELECT id FROM users WHERE is_admin=1").fetchone()
+        if not admin_row:
+            pwd_hash = generate_password_hash(admin_password)
+            conn.execute(
+                "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 1)",
+                (admin_email, "管理员", pwd_hash),
+            )
+            conn.commit()
+            print(f"[初始化] 管理员账号：{admin_email}（密码：{admin_password}）")
     finally:
         conn.close()
 
