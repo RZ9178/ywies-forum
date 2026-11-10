@@ -87,16 +87,12 @@ def _get_current_user():
     if not auth.startswith("Bearer "):
         return None
     token = auth[7:].strip()
-    sess = _SESSION_STORE.get(token)
-    if not sess:
-        return None
-    user_id, expires_at = sess
-    if time.time() > expires_at:
-        _SESSION_STORE.pop(token, None)
-        return None
     conn = get_db()
     try:
-        row = conn.execute("SELECT id, email, username, is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, email, username, is_admin FROM users WHERE token=? AND token_expires>?",
+            (token, time.time())
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -166,12 +162,16 @@ def register():
         )
         conn.commit()
         user_id = cur.lastrowid
+        token = secrets.token_urlsafe(32)
+        conn.execute(
+            "UPDATE users SET token=?, token_expires=? WHERE id=?",
+            (token, time.time() + SESSION_TTL, user_id)
+        )
+        conn.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "这个昵称已经被注册了"}), 400
     finally:
         conn.close()
-    token = secrets.token_urlsafe(32)
-    _SESSION_STORE[token] = (user_id, time.time() + SESSION_TTL)
     return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username, "is_admin": 0}})
 
 
@@ -188,7 +188,11 @@ def login():
         if not check_password_hash(row["password"], password):
             return jsonify({"error": "昵称或密码不对"}), 401
         token = secrets.token_urlsafe(32)
-        _SESSION_STORE[token] = (row["id"], time.time() + SESSION_TTL)
+        conn.execute(
+            "UPDATE users SET token=?, token_expires=? WHERE id=?",
+            (token, time.time() + SESSION_TTL, row["id"])
+        )
+        conn.commit()
         return jsonify({
             "token": token,
             "user": {"id": row["id"], "email": row["email"], "username": row["username"], "is_admin": row["is_admin"]}
@@ -453,6 +457,8 @@ def _migrate():
                     email TEXT DEFAULT '',
                     password TEXT NOT NULL,
                     is_admin INTEGER DEFAULT 0,
+                    token TEXT DEFAULT '',
+                    token_expires INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -486,7 +492,7 @@ def _migrate():
         for table, cols in [
             ("posts", ["tags", "likes", "coins"]),
             ("comments", ["likes"]),
-            ("users", ["email", "is_admin"]),
+            ("users", ["email", "is_admin", "token", "token_expires"]),
         ]:
             if is_pg:
                 existing = [r["column_name"] for r in conn.execute(
