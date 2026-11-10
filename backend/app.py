@@ -120,51 +120,43 @@ def send_code_api():
 @app.route("/api/register", methods=["POST"])
 def register():
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
+    username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
-    code = (data.get("code") or "").strip()
-    username = (data.get("username") or "").strip() or email.split("@")[0]
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        return jsonify({"error": "邮箱格式不对"}), 400
+    if not username or len(username) < 2:
+        return jsonify({"error": "昵称至少 2 个字符"}), 400
     if len(password) < 6:
         return jsonify({"error": "密码至少 6 位"}), 400
-    stored = _CODE_STORE.get(email)
-    if not stored or stored[0] != code:
-        return jsonify({"error": "验证码不对"}), 400
-    if time.time() > stored[1]:
-        _CODE_STORE.pop(email, None)
-        return jsonify({"error": "验证码已过期"}), 400
     pwd_hash = generate_password_hash(password)
+    fake_email = username + "@ywies.local"
     conn = get_db()
     try:
         cur = conn.execute(
             "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
-            (email, username, pwd_hash),
+            (fake_email, username, pwd_hash),
         )
         conn.commit()
         user_id = cur.lastrowid
-        _CODE_STORE.pop(email, None)
     except sqlite3.IntegrityError:
-        return jsonify({"error": "这个邮箱已经注册过了"}), 400
+        return jsonify({"error": "这个昵称已经被注册了"}), 400
     finally:
         conn.close()
     token = secrets.token_urlsafe(32)
     _SESSION_STORE[token] = (user_id, time.time() + SESSION_TTL)
-    return jsonify({"token": token, "user": {"id": user_id, "email": email, "username": username, "is_admin": 0}})
+    return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username, "is_admin": 0}})
 
 
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
+    username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
     conn = get_db()
     try:
-        row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if not row:
-            return jsonify({"error": "邮箱或密码不对"}), 401
+            return jsonify({"error": "昵称或密码不对"}), 401
         if not check_password_hash(row["password"], password):
-            return jsonify({"error": "邮箱或密码不对"}), 401
+            return jsonify({"error": "昵称或密码不对"}), 401
         token = secrets.token_urlsafe(32)
         _SESSION_STORE[token] = (row["id"], time.time() + SESSION_TTL)
         return jsonify({

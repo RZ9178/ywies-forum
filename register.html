@@ -13,21 +13,8 @@
 
         <div class="auth-form">
             <div class="form-group">
-                <label>邮箱</label>
-                <input type="email" id="regEmail" placeholder="you@ywies.com">
-            </div>
-
-            <div class="form-group">
-                <label>验证码</label>
-                <div class="code-row">
-                    <input type="text" id="regCode" placeholder="6 位验证码" maxlength="6">
-                    <button class="btn-outline" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label>昵称（可选）</label>
-                <input type="text" id="regName" placeholder="怎么称呼你">
+                <label>昵称</label>
+                <input type="text" id="regName" placeholder="给自己起个昵称">
             </div>
 
             <div class="form-group">
@@ -43,41 +30,15 @@
 
     <script src="js/auth.js"></script>
     <script>
-        let cooldown = 0;
-        async function sendCode() {
-            const email = document.getElementById('regEmail').value.trim();
-            if (!email) { alert('请先输入邮箱'); return; }
-            const btn = document.getElementById('sendCodeBtn');
-            btn.disabled = true;
-            try {
-                const res = await Auth.post('/api/send-code', { email: email });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || '发送失败');
-                alert('验证码已发送，5 分钟内有效');
-                cooldown = 60;
-                const timer = setInterval(function () {
-                    cooldown--;
-                    btn.textContent = cooldown > 0 ? cooldown + 's' : '重新发送';
-                    btn.disabled = cooldown > 0;
-                    if (cooldown <= 0) clearInterval(timer);
-                }, 1000);
-            } catch (e) {
-                alert(e.message);
-                btn.disabled = false;
-            }
-        }
-
         async function doRegister() {
-            const email = document.getElementById('regEmail').value.trim();
-            const code = document.getElementById('regCode').value.trim();
             const username = document.getElementById('regName').value.trim();
             const password = document.getElementById('regPassword').value.trim();
-            if (!email || !code || !password) { alert('请填完整'); return; }
+            if (!username || !password) { alert('请填昵称和密码'); return; }
             const btn = document.getElementById('regBtn');
             btn.disabled = true;
             try {
                 const res = await Auth.post('/api/register', {
-                    email: email, code: code, username: username, password: password
+                    username: username, password: password
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || '注册失败');

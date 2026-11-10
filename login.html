@@ -13,8 +13,8 @@
 
         <div class="auth-form">
             <div class="form-group">
-                <label>邮箱</label>
-                <input type="email" id="loginEmail" placeholder="you@ywies.com">
+                <label>昵称</label>
+                <input type="text" id="loginName" placeholder="你的昵称">
             </div>
             <div class="form-group">
                 <label>密码</label>
@@ -28,13 +28,13 @@
     <script src="js/auth.js"></script>
     <script>
         async function doLogin() {
-            const email = document.getElementById('loginEmail').value.trim();
+            const username = document.getElementById('loginName').value.trim();
             const password = document.getElementById('loginPassword').value.trim();
-            if (!email || !password) { alert('请填完整'); return; }
+            if (!username || !password) { alert('请填昵称和密码'); return; }
             const btn = document.getElementById('loginBtn');
             btn.disabled = true;
             try {
-                const res = await Auth.post('/api/login', { email: email, password: password });
+                const res = await Auth.post('/api/login', { username: username, password: password });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || '登录失败');
                 Auth.save(data.token, data.user);
