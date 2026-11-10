@@ -1,3 +1,4 @@
 # 后端依赖：拿到项目后在命令行运行  pip install -r requirements.txt
 flask>=3.0
 requests>=2.31   # AI 组的 ai_reply 函数会用到，一起装上
+psycopg2-binary>=2.9  # PostgreSQL 数据库（Supabase）

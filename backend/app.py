@@ -21,6 +21,8 @@ import secrets
 import time
 from functools import wraps
 
+import psycopg2
+import psycopg2.extras
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -31,6 +33,7 @@ app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "school_posts.db")
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 _CODE_STORE = {}
 CODE_TTL = 300
@@ -38,10 +41,35 @@ _SESSION_STORE = {}
 SESSION_TTL = 7 * 24 * 3600
 
 
+class _DbWrapper:
+    """包装数据库连接，自动把 ? 占位符转成当前数据库的占位符"""
+    def __init__(self, conn, use_pg):
+        self._conn = conn
+        self._use_pg = use_pg
+        # SQLite 支持 row_factory，PostgreSQL 用 RealDictCursor
+        if not use_pg:
+            conn.row_factory = sqlite3.Row
+
+    def execute(self, sql, params=()):
+        if self._use_pg:
+            sql = sql.replace("?", "%s")
+        return self._conn.execute(sql, params)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        return _DbWrapper(conn, use_pg=True)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        return _DbWrapper(conn, use_pg=False)
 
 
 @app.after_request
@@ -413,12 +441,57 @@ def frontend_files(path):
 def _migrate():
     conn = get_db()
     try:
+        # 先建表（PostgreSQL 用）
+        is_pg = bool(DATABASE_URL)
+        if is_pg:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT DEFAULT '',
+                    password TEXT NOT NULL,
+                    is_admin INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS posts (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    content TEXT DEFAULT '',
+                    author TEXT NOT NULL,
+                    image TEXT DEFAULT '',
+                    tags TEXT DEFAULT '',
+                    likes INTEGER DEFAULT 0,
+                    coins INTEGER DEFAULT 0,
+                    views INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS comments (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL,
+                    author TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    likes INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+        # 自动补列（兼容 SQLite 和 PostgreSQL）
         for table, cols in [
             ("posts", ["tags", "likes", "coins"]),
             ("comments", ["likes"]),
             ("users", ["email", "is_admin"]),
         ]:
-            existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+            if is_pg:
+                existing = [r["column_name"] for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name=%s", (table,)
+                ).fetchall()]
+            else:
+                existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
             for col in cols:
                 if col not in existing:
                     coltype = "TEXT DEFAULT ''" if col in ("tags", "email") else "INTEGER DEFAULT 0"
@@ -426,6 +499,7 @@ def _migrate():
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
         conn.commit()
 
+        # 清理旧种子帖子
         seed_titles = (
             "欢迎来到 YWIES 论坛",
             "CCA 招新｜机器人组还差一个机械臂手",
@@ -439,6 +513,7 @@ def _migrate():
             conn.commit()
             print(f"[迁移] 已清理 {deleted} 条旧种子测试帖子")
 
+        # 管理员初始化 / 同步
         admin_email = os.getenv("ADMIN_EMAIL", "admin@ywies.local")
         admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
         admin_row = conn.execute("SELECT id, email FROM users WHERE is_admin=1").fetchone()
@@ -451,7 +526,6 @@ def _migrate():
             conn.commit()
             print(f"[初始化] 管理员账号：{admin_email}（密码：{admin_password}）")
         else:
-            # 每次启动用环境变量同步管理员邮箱和密码
             pwd_hash = generate_password_hash(admin_password)
             conn.execute(
                 "UPDATE users SET email=?, password=? WHERE id=?",
