@@ -1,55 +1,81 @@
 // ============================================
-// 首页逻辑：极简 BBS 列表 + 详情弹窗
+// 首页逻辑：极简 BBS 列表 + 详情弹窗 + 发帖弹窗
 // ============================================
 
 const API = 'http://127.0.0.1:5000/api/posts';
+const TAGS_API = 'http://127.0.0.1:5000/api/tags';
 
 let allPosts = [];
+let allTags = [];
 let currentTab = 'latest';
 let currentTag = '';
 let searchQuery = '';
-let currentPost = null;       // 弹窗里正在看的帖子
-let allComments = [];          // 当前帖子的全部评论
-let commentSort = 'earliest';  // earliest | latest
+let currentPost = null;
+let allComments = [];
+let commentSort = 'earliest';
+let selectedTags = [];
+let uploadedImage = '';
 
-// localStorage 键
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
 const K_FOLLOW = 'ywies_following';
 const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
+const K_AUTHOR = 'ywies_author';
 
 window.addEventListener('DOMContentLoaded', function () {
     fetchPosts();
+    fetchTags();
     bindTabs();
-    bindTags();
     bindSearch();
     bindBell();
     bindDetailModal();
+    bindPostModal();
 });
 
 async function fetchPosts() {
     try {
         const res = await fetch(API);
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        allPosts = Array.isArray(data) ? data : (data.posts || data.data || []);
+        allPosts = await res.json();
     } catch (e) {
-        console.warn('[首页] 拉取失败，使用示例数据：', e.message);
+        console.warn('[首页] 拉取失败：', e.message);
         allPosts = [];
     }
     render();
 }
 
+async function fetchTags() {
+    try {
+        const res = await fetch(TAGS_API);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        allTags = await res.json();
+    } catch (e) { allTags = []; }
+    renderTagBar();
+}
+
+// ---------- 标签栏 ----------
+function renderTagBar() {
+    const bar = document.getElementById('tagBar');
+    let html = '<button class="tag-pill' + (currentTag === '' ? ' active' : '') + '" data-tag="">全部</button>';
+    allTags.forEach(function (t) {
+        const name = t.name;
+        html += '<button class="tag-pill' + (currentTag === name ? ' active' : '') + '" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</button>';
+    });
+    bar.innerHTML = html;
+    bar.querySelectorAll('.tag-pill').forEach(function (pill) {
+        pill.addEventListener('click', function () {
+            currentTag = pill.getAttribute('data-tag');
+            renderTagBar();
+            render();
+        });
+    });
+}
+
 // ---------- 列表渲染 ----------
 function render() {
     let list = allPosts.slice();
-
-    if (currentTag) {
-        list = list.filter(function (p) {
-            return (p.tags || '').includes(currentTag);
-        });
-    }
+    if (currentTag) list = list.filter(function (p) { return (p.tags || '').includes(currentTag); });
     if (searchQuery) {
         const q = searchQuery.toLowerCase();
         list = list.filter(function (p) {
@@ -58,21 +84,19 @@ function render() {
                    (p.author || '').toLowerCase().includes(q);
         });
     }
-
-    if (currentTab === 'latest') list.sort(function (a, b) { return b.id - a.id; });
+    if (currentTab === 'latest' || currentTab === 'all') list.sort(function (a, b) { return b.id - a.id; });
     else if (currentTab === 'hot') list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
     else if (currentTab === 'unread') {
         const read = getRead();
-        list = list.filter(function (p) { return read.indexOf(p.id) === -1; });
-        list.sort(function (a, b) { return b.id - a.id; });
+        list = list.filter(function (p) { return read.indexOf(p.id) === -1; })
+                   .sort(function (a, b) { return b.id - a.id; });
     } else if (currentTab === 'followed') {
         const following = getFollowing();
         list = list.filter(function (p) { return following.indexOf(p.author) !== -1; });
     } else if (currentTab === 'bookmarked') {
         const bm = getBookmarks();
         list = list.filter(function (p) { return bm.indexOf(p.id) !== -1; });
-    } else if (currentTab === 'all') list.sort(function (a, b) { return b.id - a.id; });
-
+    }
     renderList(list);
 }
 
@@ -91,12 +115,14 @@ function renderList(list) {
         row.className = 'post-row';
         const isRead = read.indexOf(p.id) !== -1;
         const isBm = bm.indexOf(p.id) !== -1;
+        const firstTag = (p.tags || '').split(',')[0].trim();
 
         row.innerHTML =
             '<span class="' + (isRead ? 'read-dot' : 'unread-dot') + '"></span>' +
             '<div class="col-main">' +
                 '<span class="post-title">' + escapeHtml(p.title || '无标题') + '</span>' +
-                (p.tags ? '<span class="post-tag">' + escapeHtml(p.tags.split(',')[0]) + '</span>' : '') +
+                (firstTag ? '<span class="post-tag">' + escapeHtml(firstTag) + '</span>' : '') +
+                (p.image ? '<span class="post-img-icon">🖼</span>' : '') +
             '</div>' +
             '<span class="col-author"><a href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a></span>' +
             '<span class="col-replies">' + (p.replies || 0) + '</span>' +
@@ -110,42 +136,26 @@ function renderList(list) {
             markRead(p.id);
             openDetail(p.id);
         });
-
         row.querySelector('.star-btn').addEventListener('click', function (e) {
             e.stopPropagation();
             toggleBookmark(p.id);
         });
-
         const authorLink = row.querySelector('.col-author a');
-        if (authorLink) {
-            authorLink.addEventListener('click', function (e) {
-                e.stopPropagation();
-                const name = this.getAttribute('data-author');
-                alert('用户：' + name + '\n（用户主页正在建设中）');
-            });
-        }
-
+        if (authorLink) authorLink.addEventListener('click', function (e) {
+            e.stopPropagation();
+            alert('用户：' + this.getAttribute('data-author') + '\n（用户主页正在建设中）');
+        });
         wrap.appendChild(row);
     });
 }
 
-// ---------- 交互绑定 ----------
+// ---------- Tab / 搜索 / 通知 ----------
 function bindTabs() {
     document.querySelectorAll('.tab').forEach(function (tab) {
         tab.addEventListener('click', function () {
             document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
             tab.classList.add('active');
             currentTab = tab.getAttribute('data-tab');
-            render();
-        });
-    });
-}
-function bindTags() {
-    document.querySelectorAll('.tag-pill').forEach(function (pill) {
-        pill.addEventListener('click', function () {
-            document.querySelectorAll('.tag-pill').forEach(function (p) { p.classList.remove('active'); });
-            pill.classList.add('active');
-            currentTag = pill.getAttribute('data-tag');
             render();
         });
     });
@@ -169,8 +179,6 @@ function bindBell() {
         if (e.target === this) this.hidden = true;
     });
 }
-
-// ---------- 通知 ----------
 function renderNotifs() {
     const list = document.getElementById('notifList');
     const notifs = [
@@ -179,12 +187,144 @@ function renderNotifs() {
         { title: '系统通知', text: '论坛 1.0 版本上线，如有 bug 请联系学生会。', time: '2026-11-08' }
     ];
     list.innerHTML = notifs.map(function (n) {
-        return '<div class="notif-item">' +
-            '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
-            '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
-            '<div class="notif-time">' + escapeHtml(n.time) + '</div>' +
-        '</div>';
+        return '<div class="notif-item"><div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+               '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
+               '<div class="notif-time">' + escapeHtml(n.time) + '</div></div>';
     }).join('');
+}
+
+// ---------- 发帖弹窗 ----------
+function bindPostModal() {
+    document.getElementById('openPostBtn').addEventListener('click', openPostModal);
+    document.getElementById('postClose').addEventListener('click', closePostModal);
+    document.getElementById('postModal').addEventListener('click', function (e) {
+        if (e.target === this) closePostModal();
+    });
+
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('postImage');
+    uploadArea.addEventListener('click', function () { fileInput.click(); });
+    uploadArea.addEventListener('dragover', function (e) { e.preventDefault(); });
+    uploadArea.addEventListener('drop', function (e) {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) handleImageFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', function () {
+        if (this.files.length) handleImageFile(this.files[0]);
+    });
+
+    document.getElementById('newTagInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const val = this.value.trim();
+            if (val && selectedTags.indexOf(val) === -1) {
+                selectedTags.push(val);
+                this.value = '';
+                renderTagPicker();
+            }
+        }
+    });
+
+    document.getElementById('submitPostBtn').addEventListener('click', submitPost);
+}
+
+function openPostModal() {
+    document.getElementById('postAuthor').value = localStorage.getItem(K_AUTHOR) || '';
+    document.getElementById('postTitle').value = '';
+    document.getElementById('postContent').value = '';
+    document.getElementById('postImage').value = '';
+    document.getElementById('newTagInput').value = '';
+    selectedTags = [];
+    uploadedImage = '';
+    document.getElementById('imagePreview').hidden = true;
+    document.getElementById('uploadPlaceholder').style.display = '';
+    renderTagPicker();
+    document.getElementById('postModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+}
+
+function closePostModal() {
+    document.getElementById('postModal').hidden = true;
+    document.body.style.overflow = '';
+}
+
+function handleImageFile(file) {
+    if (!file.type.startsWith('image/')) { alert('请上传图片文件'); return; }
+    if (file.size > 2 * 1024 * 1024) { alert('图片太大，请压缩到 2MB 以内'); return; }
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        uploadedImage = e.target.result;
+        const preview = document.getElementById('imagePreview');
+        preview.src = uploadedImage;
+        preview.hidden = false;
+        document.getElementById('uploadPlaceholder').style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+}
+
+function renderTagPicker() {
+    const picker = document.getElementById('tagPicker');
+    let html = '';
+    allTags.forEach(function (t) {
+        const name = t.name;
+        const sel = selectedTags.indexOf(name) !== -1;
+        html += '<span class="tag-option' + (sel ? ' selected' : '') + '" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>';
+    });
+    selectedTags.forEach(function (name) {
+        if (!allTags.find(function (t) { return t.name === name; })) {
+            html += '<span class="tag-option selected" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>';
+        }
+    });
+    if (!allTags.length && !selectedTags.length) {
+        html = '<span style="color:#6b6b76;font-size:13px;">暂无标签，在下方输入框输入新标签</span>';
+    }
+    picker.innerHTML = html;
+    picker.querySelectorAll('.tag-option').forEach(function (el) {
+        el.addEventListener('click', function () {
+            const name = el.getAttribute('data-tag');
+            const idx = selectedTags.indexOf(name);
+            if (idx === -1) selectedTags.push(name); else selectedTags.splice(idx, 1);
+            renderTagPicker();
+        });
+    });
+}
+
+async function submitPost() {
+    const title = document.getElementById('postTitle').value.trim();
+    const content = document.getElementById('postContent').value.trim();
+    const author = document.getElementById('postAuthor').value.trim() || '匿名同学';
+
+    if (!title) { alert('请输入标题'); return; }
+    if (!content) { alert('请输入内容'); return; }
+
+    localStorage.setItem(K_AUTHOR, author);
+
+    const btn = document.getElementById('submitPostBtn');
+    btn.disabled = true;
+    btn.textContent = '发布中...';
+
+    try {
+        const res = await fetch(API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: title, content: content, author: author,
+                tags: selectedTags.join(','), image: uploadedImage
+            })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || '发布失败');
+        }
+        closePostModal();
+        await fetchPosts();
+        await fetchTags();
+    } catch (e) {
+        alert('发布失败：' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '发布帖子';
+    }
 }
 
 // ---------- 详情弹窗 ----------
@@ -234,10 +374,7 @@ async function openDetail(postId) {
         const res = await fetch(API + '/' + postId);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         currentPost = await res.json();
-    } catch (e) {
-        console.warn('[详情] 拉取失败', e);
-        return;
-    }
+    } catch (e) { return; }
     try {
         const res = await fetch(API + '/' + postId + '/comments');
         allComments = res.ok ? await res.json() : [];
@@ -267,6 +404,7 @@ function renderDetail() {
     document.getElementById('detailContent').textContent = p.content || '';
     document.getElementById('detailTime').textContent = formatTime(p.created_at);
     document.getElementById('commentCount').textContent = allComments.length;
+    document.getElementById('commentAuthor').value = localStorage.getItem(K_AUTHOR) || '';
     renderComments();
     updateFooterButtons();
 }
@@ -298,13 +436,16 @@ function renderComments() {
 
 async function submitComment() {
     const input = document.getElementById('commentInput');
+    const authorInput = document.getElementById('commentAuthor');
     const text = input.value.trim();
+    const author = authorInput.value.trim() || '匿名同学';
     if (!text || !currentPost) return;
+    localStorage.setItem(K_AUTHOR, author);
     try {
         await fetch(API + '/' + currentPost.id + '/comments', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: text, author: '匿名同学' })
+            body: JSON.stringify({ content: text, author: author })
         });
         input.value = '';
         const res = await fetch(API + '/' + currentPost.id + '/comments');
@@ -318,9 +459,7 @@ async function submitComment() {
 
 function updateFooterButtons() {
     if (!currentPost) return;
-    const liked = getLiked();
-    const coined = getCoined();
-    const bm = getBookmarks();
+    const liked = getLiked(), coined = getCoined(), bm = getBookmarks();
     document.getElementById('footerLikeCount').textContent = currentPost.likes || 0;
     document.getElementById('footerCoinCount').textContent = currentPost.coins || 0;
     document.getElementById('footerStarCount').textContent = bm.indexOf(currentPost.id) !== -1 ? 1 : 0;
@@ -329,12 +468,9 @@ function updateFooterButtons() {
     document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
 }
 
-// ---------- localStorage 工具 ----------
+// ---------- localStorage ----------
 function getRead() { try { return JSON.parse(localStorage.getItem(K_READ) || '[]'); } catch (e) { return []; } }
-function markRead(id) {
-    const r = getRead();
-    if (r.indexOf(id) === -1) { r.push(id); localStorage.setItem(K_READ, JSON.stringify(r)); }
-}
+function markRead(id) { const r = getRead(); if (r.indexOf(id) === -1) { r.push(id); localStorage.setItem(K_READ, JSON.stringify(r)); } }
 function getBookmarks() { try { return JSON.parse(localStorage.getItem(K_BOOKMARK) || '[]'); } catch (e) { return []; } }
 function toggleBookmark(id) {
     const bm = getBookmarks();
@@ -347,7 +483,6 @@ function getFollowing() { try { return JSON.parse(localStorage.getItem(K_FOLLOW)
 function getLiked() { try { return JSON.parse(localStorage.getItem(K_LIKED) || '[]'); } catch (e) { return []; } }
 function getCoined() { try { return JSON.parse(localStorage.getItem(K_COINED) || '[]'); } catch (e) { return []; } }
 
-// ---------- 工具 ----------
 function formatTime(t) {
     if (!t) return '-';
     const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);

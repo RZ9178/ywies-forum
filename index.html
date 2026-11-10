@@ -25,7 +25,7 @@
                     🔔
                     <span class="bell-dot" id="bellDot" hidden></span>
                 </button>
-                <a href="post.html" class="btn-post">发帖</a>
+                <button class="btn-post" id="openPostBtn">发帖</button>
             </div>
         </div>
     </header>
@@ -42,14 +42,9 @@
         </div>
     </nav>
 
-    <!-- 标签筛选 -->
+    <!-- 标签筛选（JS 动态加载） -->
     <div class="tag-bar" id="tagBar">
         <button class="tag-pill active" data-tag="">全部</button>
-        <button class="tag-pill" data-tag="食堂">食堂</button>
-        <button class="tag-pill" data-tag="社团招新">社团招新</button>
-        <button class="tag-pill" data-tag="物品交换">物品交换</button>
-        <button class="tag-pill" data-tag="求助">求助</button>
-        <button class="tag-pill" data-tag="闲聊">闲聊</button>
     </div>
 
     <!-- 帖子列表 -->
@@ -78,19 +73,56 @@
         </div>
     </div>
 
+    <!-- 发帖弹窗 -->
+    <div class="modal-mask" id="postModal" hidden>
+        <div class="post-dialog">
+            <div class="modal-head">
+                <span>发布新帖子</span>
+                <button class="modal-close" id="postClose">×</button>
+            </div>
+            <div class="post-body">
+                <div class="post-form-group">
+                    <label>昵称</label>
+                    <input type="text" id="postAuthor" placeholder="你的昵称（可留空默认匿名同学）">
+                </div>
+                <div class="post-form-group">
+                    <label>标题</label>
+                    <input type="text" id="postTitle" placeholder="给帖子起个标题...">
+                </div>
+                <div class="post-form-group">
+                    <label>正文</label>
+                    <textarea id="postContent" rows="5" placeholder="想说点什么..."></textarea>
+                </div>
+                <div class="post-form-group">
+                    <label>图片（可选）</label>
+                    <div class="upload-area" id="uploadArea">
+                        <input type="file" id="postImage" accept="image/*" hidden>
+                        <div class="upload-placeholder" id="uploadPlaceholder">点击或拖拽上传图片</div>
+                        <img id="imagePreview" class="image-preview" hidden>
+                    </div>
+                </div>
+                <div class="post-form-group">
+                    <label>标签</label>
+                    <div class="tag-picker" id="tagPicker"></div>
+                    <div class="tag-new-row">
+                        <input type="text" id="newTagInput" placeholder="输入新标签，回车添加">
+                    </div>
+                </div>
+                <button class="btn-post btn-submit" id="submitPostBtn">发布帖子</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 帖子详情弹窗 -->
     <div class="detail-mask" id="detailModal" hidden>
         <div class="detail-dialog">
-            <!-- 右上角红色关闭按钮 -->
             <button class="detail-close" id="detailClose" title="关闭">✕</button>
 
             <div class="detail-grid">
-                <!-- 左：帖子图片 -->
                 <div class="detail-img-col">
                     <div class="detail-img" id="detailImg"></div>
                 </div>
 
-                <!-- 中：作者 / 点赞 / 标题 / 正文 / 时间 -->
                 <div class="detail-main-col">
                     <div class="detail-author">
                         <div class="detail-avatar" id="detailAvatar"></div>
@@ -104,7 +136,6 @@
                     <div class="detail-time" id="detailTime"></div>
                 </div>
 
-                <!-- 右：评论区 -->
                 <div class="detail-comments-col">
                     <div class="comments-head">
                         <span>评论 <span id="commentCount">0</span></span>
@@ -117,9 +148,9 @@
                 </div>
             </div>
 
-            <!-- 底部操作栏 -->
             <div class="detail-footer">
                 <div class="footer-input">
+                    <input type="text" id="commentAuthor" placeholder="昵称" style="width:90px;margin-right:6px;">
                     <input type="text" id="commentInput" placeholder="说点什么...">
                 </div>
                 <button class="footer-btn" id="footerLike" title="点赞">👍 <span id="footerLikeCount">0</span></button>

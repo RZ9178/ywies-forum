@@ -669,3 +669,118 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     .detail-footer { flex-wrap: wrap; }
     .footer-input { width: 100%; flex: none; }
 }
+
+/* ============================================
+   发帖弹窗
+   ============================================ */
+.post-dialog {
+    background: #0e0e11;
+    border: 1px solid #26262c;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.post-body { padding: 20px 24px 24px; }
+.post-form-group { margin-bottom: 16px; }
+.post-form-group label {
+    display: block;
+    font-size: 13px;
+    color: #9b9ba4;
+    margin-bottom: 6px;
+}
+.post-form-group input[type="text"],
+.post-form-group textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: #16161a;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+.post-form-group input:focus,
+.post-form-group textarea:focus { border-color: #c6dd4e; }
+.post-form-group textarea { resize: vertical; }
+
+.upload-area {
+    border: 2px dashed #2a2a32;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.upload-area:hover { border-color: #c6dd4e; }
+.upload-placeholder { color: #6b6b76; font-size: 13px; }
+.image-preview {
+    max-width: 100%;
+    max-height: 240px;
+    border-radius: 8px;
+    margin-top: 8px;
+}
+
+.tag-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.tag-picker .tag-option {
+    padding: 5px 14px;
+    border-radius: 16px;
+    background: #16161a;
+    border: 1px solid #2a2a32;
+    color: #9b9ba4;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tag-picker .tag-option:hover { border-color: #c6dd4e; color: #c6dd4e; }
+.tag-picker .tag-option.selected {
+    background: #c6dd4e;
+    color: #1a1a1a;
+    border-color: #c6dd4e;
+    font-weight: 600;
+}
+.tag-new-row input {
+    width: 100%;
+    padding: 8px 12px;
+    background: #16161a;
+    border: 1px solid #26262c;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+}
+.tag-new-row input:focus { border-color: #c6dd4e; }
+
+.btn-submit {
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 8px;
+}
+.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 评论输入行的昵称输入 */
+.footer-input {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.footer-input input#commentAuthor {
+    width: 80px;
+    flex-shrink: 0;
+    padding: 10px 10px;
+}
+
