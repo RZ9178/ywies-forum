@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YWIES论坛</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 顶部导航 -->
+    <header class="header">
+        <div class="header-left">
+            <img src="school-badge.png" class="logo-img" alt="校徽">
+            <span class="logo-text">YWIES论坛</span>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="搜索...">
+            <button class="search-btn" aria-label="搜索">🔍</button>
+        </div>
+
+        <nav class="header-right">
+            <button class="nav-tab">推送</button>
+            <button class="nav-tab">私信</button>
+            <a href="post.html" class="btn-post">发帖</a>
+        </nav>
+    </header>
+
+    <!-- 分类筛选标签 -->
+    <div class="filter-bar">
+        <button class="filter-pill active">最新</button>
+        <button class="filter-pill">热门</button>
+        <button class="filter-pill">未看</button>
+        <button class="filter-pill">关注</button>
+        <button class="filter-pill">收藏</button>
+        <button class="filter-pill">全部</button>
+    </div>
+
+    <!-- 帖子瀑布流 -->
+    <main class="container">
+        <div class="post-grid" id="post-list"></div>
+        <div class="empty-state" id="empty-state" hidden>
+            还没有帖子，点右上角「发帖」发第一条吧～
+        </div>
+    </main>
+
+    <!-- AI聊天窗口 - 耀耀 -->
+    <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
+        <img src="mascot.png" alt="耀耀">
+    </button>
+    <div class="chat-panel" id="chatPanel">
+        <div class="chat-header">
+            <div class="chat-header-left">
+                <div class="chat-avatar">
+                    <img src="mascot.png" alt="耀耀">
+                </div>
+                <span>耀耀</span>
+            </div>
+            <button class="chat-close-btn" onclick="closeChat()" title="关闭">×</button>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-msg ai">
+                <div class="bubble">你好！我是耀耀，有什么可以帮你的？</div>
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" placeholder="输入消息...">
+            <button id="chatSendBtn">发送</button>
+        </div>
+    </div>
+
+    <script src="js/language.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/script.js"></script>
+</body>
+</html>

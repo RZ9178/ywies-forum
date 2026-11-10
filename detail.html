@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>帖子详情 - YWIES Forum</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 顶部导航 -->
+    <header class="header">
+        <div class="header-left">
+            <img src="school-badge.png" class="logo-img" alt="校徽">
+            <span class="logo-text">YWIES论坛</span>
+        </div>
+        <nav class="header-right">
+            <a href="index.html" class="btn-gray">返回首页</a>
+        </nav>
+    </header>
+
+    <!-- 帖子详情 -->
+    <main class="container">
+        <div class="detail-card">
+            <h2 id="detail-title">加载中...</h2>
+            <div class="detail-content" id="detail-content">内容加载中...</div>
+        </div>
+    </main>
+
+    <!-- AI聊天窗口 - 耀耀 -->
+    <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
+        <img src="mascot.png" alt="耀耀">
+    </button>
+    <div class="chat-panel" id="chatPanel">
+        <div class="chat-header">
+            <div class="chat-header-left">
+                <div class="chat-avatar">
+                    <img src="mascot.png" alt="耀耀">
+                </div>
+                <span data-i18n="chatTitle">耀耀</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <select id="chatRole">
+                    <option value="study">学习助手</option>
+                    <option value="campus">校园百事通</option>
+                </select>
+                <button class="chat-close-btn" onclick="closeChat()" title="关闭">×</button>
+            </div>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="chat-msg ai">
+                <div class="bubble" data-i18n="chatWelcome">你好！我是耀耀，有什么可以帮你的？</div>
+            </div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="输入消息...">
+            <button id="chatSendBtn" data-i18n="sendBtn">发送</button>
+        </div>
+    </div>
+
+    <script src="js/language.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/detail.js"></script>
+    <script>applyLanguage();</script>
+</body>
+</html>
