@@ -24,40 +24,22 @@ CREATE TABLE posts (
     tags        TEXT DEFAULT '',
     image_url   TEXT DEFAULT '',
     views       INTEGER NOT NULL DEFAULT 0,
+    likes       INTEGER NOT NULL DEFAULT 0,
+    coins       INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 评论表：replies 数通过 SELECT COUNT(*) FROM comments WHERE post_id=? 算出
+-- 评论表：replies 数通过 SELECT(*) FROM comments WHERE post_id=? 算出
 CREATE TABLE comments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id     INTEGER NOT NULL,
     author      TEXT NOT NULL DEFAULT '匿名同学',
     content     TEXT NOT NULL,
+    likes       INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );
 
--- 塞几条种子数据，首页打开就有东西看
+-- 默认只建一个 demo 用户，不预置任何帖子和评论
 INSERT INTO users (username, password) VALUES
     ('demo', 'demo123');
-
-INSERT INTO posts (title, content, author, tags, views) VALUES
-    ('欢迎来到 YWIES 论坛',
-     '这是我们学校自己的校园论坛，大家可以在这里发帖交流、CCA 组队、约饭、换物～',
-     '论坛管理员', '闲聊', 128),
-    ('CCA 招新｜机器人组还差一个机械臂手',
-     '下周招新，我们组还差一个负责机械臂的同学，有兴趣的评论区扣 1，技术栈不限，零基础也能教。',
-     'RoboRay', '社团招新', 86),
-    ('三楼食堂今天的麻辣香锅绝了',
-     '推荐加牛肉和藕片，排队大概 15 分钟，亲测不踩雷。',
-     '食堂常客', '食堂', 210),
-    ('有人来换越狱牌吗',
-     '有三张多的可以换，私聊。',
-     'AAA小雷音寺住持', '物品交换', 32);
-
-INSERT INTO comments (post_id, author, content) VALUES
-    (1, '路人甲', '前排支持！'),
-    (1, 'Y23小明', '希望能加个匿名板块'),
-    (2, '机器人小白', '扣 1，完全零基础能进吗？'),
-    (3, '干饭人', '昨晚刚吃过，确实香'),
-    (3, '辣度挑战王', '中辣就已经冒汗了，慎重');

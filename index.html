@@ -78,6 +78,57 @@
         </div>
     </div>
 
+    <!-- 帖子详情弹窗 -->
+    <div class="detail-mask" id="detailModal" hidden>
+        <div class="detail-dialog">
+            <!-- 右上角红色关闭按钮 -->
+            <button class="detail-close" id="detailClose" title="关闭">✕</button>
+
+            <div class="detail-grid">
+                <!-- 左：帖子图片 -->
+                <div class="detail-img-col">
+                    <div class="detail-img" id="detailImg"></div>
+                </div>
+
+                <!-- 中：作者 / 点赞 / 标题 / 正文 / 时间 -->
+                <div class="detail-main-col">
+                    <div class="detail-author">
+                        <div class="detail-avatar" id="detailAvatar"></div>
+                        <div class="detail-author-info">
+                            <div class="detail-author-name" id="detailAuthorName"></div>
+                            <div class="detail-like" id="detailLikes">♥ 0</div>
+                        </div>
+                    </div>
+                    <h2 class="detail-title" id="detailTitle"></h2>
+                    <div class="detail-content" id="detailContent"></div>
+                    <div class="detail-time" id="detailTime"></div>
+                </div>
+
+                <!-- 右：评论区 -->
+                <div class="detail-comments-col">
+                    <div class="comments-head">
+                        <span>评论 <span id="commentCount">0</span></span>
+                        <div class="comments-sort">
+                            <button class="sort-btn active" data-sort="earliest">最早</button>
+                            <button class="sort-btn" data-sort="latest">最新</button>
+                        </div>
+                    </div>
+                    <div class="comments-list" id="commentsList"></div>
+                </div>
+            </div>
+
+            <!-- 底部操作栏 -->
+            <div class="detail-footer">
+                <div class="footer-input">
+                    <input type="text" id="commentInput" placeholder="说点什么...">
+                </div>
+                <button class="footer-btn" id="footerLike" title="点赞">👍 <span id="footerLikeCount">0</span></button>
+                <button class="footer-btn" id="footerCoin" title="硬币">🪙 <span id="footerCoinCount">0</span></button>
+                <button class="footer-btn" id="footerStar" title="收藏">☆ <span id="footerStarCount">0</span></button>
+            </div>
+        </div>
+    </div>
+
     <!-- AI 聊天窗口 - 耀耀 -->
     <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
         <img src="mascot.png" alt="耀耀">

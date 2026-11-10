@@ -1,6 +1,5 @@
 // ============================================
-// 首页逻辑：极简 BBS 列表
-// 后端：GET /api/posts
+// 首页逻辑：极简 BBS 列表 + 详情弹窗
 // ============================================
 
 const API = 'http://127.0.0.1:5000/api/posts';
@@ -9,11 +8,16 @@ let allPosts = [];
 let currentTab = 'latest';
 let currentTag = '';
 let searchQuery = '';
+let currentPost = null;       // 弹窗里正在看的帖子
+let allComments = [];          // 当前帖子的全部评论
+let commentSort = 'earliest';  // earliest | latest
 
 // localStorage 键
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
 const K_FOLLOW = 'ywies_following';
+const K_LIKED = 'ywies_liked';
+const K_COINED = 'ywies_coined';
 
 window.addEventListener('DOMContentLoaded', function () {
     fetchPosts();
@@ -21,6 +25,7 @@ window.addEventListener('DOMContentLoaded', function () {
     bindTags();
     bindSearch();
     bindBell();
+    bindDetailModal();
 });
 
 async function fetchPosts() {
@@ -31,23 +36,20 @@ async function fetchPosts() {
         allPosts = Array.isArray(data) ? data : (data.posts || data.data || []);
     } catch (e) {
         console.warn('[首页] 拉取失败，使用示例数据：', e.message);
-        allPosts = SAMPLE_POSTS;
+        allPosts = [];
     }
     render();
 }
 
-// ---------- 渲染 ----------
+// ---------- 列表渲染 ----------
 function render() {
     let list = allPosts.slice();
 
-    // 标签筛选
     if (currentTag) {
         list = list.filter(function (p) {
             return (p.tags || '').includes(currentTag);
         });
     }
-
-    // 搜索
     if (searchQuery) {
         const q = searchQuery.toLowerCase();
         list = list.filter(function (p) {
@@ -57,12 +59,9 @@ function render() {
         });
     }
 
-    // Tab 排序/过滤
-    if (currentTab === 'latest') {
-        list.sort(function (a, b) { return b.id - a.id; });
-    } else if (currentTab === 'hot') {
-        list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
-    } else if (currentTab === 'unread') {
+    if (currentTab === 'latest') list.sort(function (a, b) { return b.id - a.id; });
+    else if (currentTab === 'hot') list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
+    else if (currentTab === 'unread') {
         const read = getRead();
         list = list.filter(function (p) { return read.indexOf(p.id) === -1; });
         list.sort(function (a, b) { return b.id - a.id; });
@@ -72,11 +71,7 @@ function render() {
     } else if (currentTab === 'bookmarked') {
         const bm = getBookmarks();
         list = list.filter(function (p) { return bm.indexOf(p.id) !== -1; });
-    }
-    // all = 不过滤，按 id 倒序
-    if (currentTab === 'all') {
-        list.sort(function (a, b) { return b.id - a.id; });
-    }
+    } else if (currentTab === 'all') list.sort(function (a, b) { return b.id - a.id; });
 
     renderList(list);
 }
@@ -85,11 +80,7 @@ function renderList(list) {
     const wrap = document.getElementById('postList');
     const empty = document.getElementById('emptyState');
     wrap.innerHTML = '';
-
-    if (!list.length) {
-        empty.hidden = false;
-        return;
-    }
+    if (!list.length) { empty.hidden = false; return; }
     empty.hidden = true;
 
     const read = getRead();
@@ -98,7 +89,6 @@ function renderList(list) {
     list.forEach(function (p) {
         const row = document.createElement('div');
         row.className = 'post-row';
-
         const isRead = read.indexOf(p.id) !== -1;
         const isBm = bm.indexOf(p.id) !== -1;
 
@@ -114,27 +104,24 @@ function renderList(list) {
             '<span class="col-time">' + formatTime(p.created_at) + '</span>' +
             '<button class="star-btn' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏">' + (isBm ? '★' : '☆') + '</button>';
 
-        // 点击整行 → 详情页，标记已读
         row.addEventListener('click', function (e) {
             if (e.target.classList.contains('star-btn')) return;
             if (e.target.tagName === 'A') return;
             markRead(p.id);
-            window.location.href = 'detail.html?id=' + p.id;
+            openDetail(p.id);
         });
 
-        // 收藏
         row.querySelector('.star-btn').addEventListener('click', function (e) {
             e.stopPropagation();
             toggleBookmark(p.id);
         });
 
-        // 作者名 → 用户主页（简单 alert，以后再做独立页面）
         const authorLink = row.querySelector('.col-author a');
         if (authorLink) {
             authorLink.addEventListener('click', function (e) {
                 e.stopPropagation();
                 const name = this.getAttribute('data-author');
-                alert('用户：' + name + '\n（用户主页正在建设中，以后可查看该用户所有帖子）');
+                alert('用户：' + name + '\n（用户主页正在建设中）');
             });
         }
 
@@ -153,7 +140,6 @@ function bindTabs() {
         });
     });
 }
-
 function bindTags() {
     document.querySelectorAll('.tag-pill').forEach(function (pill) {
         pill.addEventListener('click', function () {
@@ -164,14 +150,12 @@ function bindTags() {
         });
     });
 }
-
 function bindSearch() {
     document.getElementById('searchInput').addEventListener('input', function (e) {
         searchQuery = e.target.value.trim();
         render();
     });
 }
-
 function bindBell() {
     document.getElementById('bellBtn').addEventListener('click', function () {
         renderNotifs();
@@ -190,8 +174,8 @@ function bindBell() {
 function renderNotifs() {
     const list = document.getElementById('notifList');
     const notifs = [
-        { title: '欢迎来到 YWIES 论坛', text: '这里是我们学校自己的校园论坛，欢迎发帖交流、社团组队、物品交换。', time: '2026-11-10' },
-        { title: '举报处理回执', text: '你举报的帖子已处理完毕，感谢你维护论坛环境。', time: '2026-11-09' },
+        { title: '欢迎来到 YWIES 论坛', text: '这里是我们学校自己的校园论坛，欢迎发帖交流。', time: '2026-11-10' },
+        { title: '举报处理回执', text: '你举报的帖子已处理完毕。', time: '2026-11-09' },
         { title: '系统通知', text: '论坛 1.0 版本上线，如有 bug 请联系学生会。', time: '2026-11-08' }
     ];
     list.innerHTML = notifs.map(function (n) {
@@ -201,6 +185,148 @@ function renderNotifs() {
             '<div class="notif-time">' + escapeHtml(n.time) + '</div>' +
         '</div>';
     }).join('');
+}
+
+// ---------- 详情弹窗 ----------
+function bindDetailModal() {
+    document.getElementById('detailClose').addEventListener('click', closeDetail);
+    document.getElementById('detailModal').addEventListener('click', function (e) {
+        if (e.target === this) closeDetail();
+    });
+    document.querySelectorAll('.sort-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.sort-btn').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            commentSort = btn.getAttribute('data-sort');
+            renderComments();
+        });
+    });
+    document.getElementById('footerLike').addEventListener('click', function () {
+        if (!currentPost) return;
+        const liked = getLiked();
+        const idx = liked.indexOf(currentPost.id);
+        if (idx === -1) { liked.push(currentPost.id); currentPost.likes = (currentPost.likes || 0) + 1; }
+        else { liked.splice(idx, 1); currentPost.likes = (currentPost.likes || 0) - 1; }
+        localStorage.setItem(K_LIKED, JSON.stringify(liked));
+        updateFooterButtons();
+    });
+    document.getElementById('footerCoin').addEventListener('click', function () {
+        if (!currentPost) return;
+        const coined = getCoined();
+        const idx = coined.indexOf(currentPost.id);
+        if (idx === -1) { coined.push(currentPost.id); currentPost.coins = (currentPost.coins || 0) + 1; }
+        else { coined.splice(idx, 1); currentPost.coins = (currentPost.coins || 0) - 1; }
+        localStorage.setItem(K_COINED, JSON.stringify(coined));
+        updateFooterButtons();
+    });
+    document.getElementById('footerStar').addEventListener('click', function () {
+        if (!currentPost) return;
+        toggleBookmark(currentPost.id);
+        updateFooterButtons();
+    });
+    document.getElementById('commentInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') submitComment();
+    });
+}
+
+async function openDetail(postId) {
+    try {
+        const res = await fetch(API + '/' + postId);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        currentPost = await res.json();
+    } catch (e) {
+        console.warn('[详情] 拉取失败', e);
+        return;
+    }
+    try {
+        const res = await fetch(API + '/' + postId + '/comments');
+        allComments = res.ok ? await res.json() : [];
+    } catch (e) { allComments = []; }
+
+    renderDetail();
+    document.getElementById('detailModal').hidden = false;
+    document.body.style.overflow = 'hidden';
+}
+
+function closeDetail() {
+    document.getElementById('detailModal').hidden = true;
+    document.body.style.overflow = '';
+    currentPost = null;
+    allComments = [];
+    render();
+}
+
+function renderDetail() {
+    const p = currentPost;
+    const imgEl = document.getElementById('detailImg');
+    if (p.image) imgEl.innerHTML = '<img src="' + escapeHtml(p.image) + '">';
+    else imgEl.innerHTML = '';
+    document.getElementById('detailAuthorName').textContent = p.author || '匿名';
+    document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
+    document.getElementById('detailTitle').textContent = p.title || '无标题';
+    document.getElementById('detailContent').textContent = p.content || '';
+    document.getElementById('detailTime').textContent = formatTime(p.created_at);
+    document.getElementById('commentCount').textContent = allComments.length;
+    renderComments();
+    updateFooterButtons();
+}
+
+function renderComments() {
+    const list = document.getElementById('commentsList');
+    const sorted = allComments.slice();
+    if (commentSort === 'latest') sorted.reverse();
+    if (!sorted.length) {
+        list.innerHTML = '<div style="color:#6b6b76;font-size:13px;padding:20px 0;text-align:center;">还没有评论，来说点什么吧</div>';
+        return;
+    }
+    const author = currentPost ? currentPost.author : '';
+    list.innerHTML = sorted.map(function (c, i) {
+        const floor = commentSort === 'earliest' ? (i + 1) : (sorted.length - i);
+        const isAuthor = c.author === author;
+        return '<div class="comment-item">' +
+            '<div class="comment-head">' +
+                '<div class="comment-avatar"></div>' +
+                '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
+                (isAuthor ? '<span class="comment-author-tag">楼主</span>' : '') +
+                '<span class="comment-floor">' + floor + 'F</span>' +
+            '</div>' +
+            '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
+            '<div class="comment-time">' + formatTime(c.created_at) + '</div>' +
+        '</div>';
+    }).join('');
+}
+
+async function submitComment() {
+    const input = document.getElementById('commentInput');
+    const text = input.value.trim();
+    if (!text || !currentPost) return;
+    try {
+        await fetch(API + '/' + currentPost.id + '/comments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: text, author: '匿名同学' })
+        });
+        input.value = '';
+        const res = await fetch(API + '/' + currentPost.id + '/comments');
+        allComments = res.ok ? await res.json() : allComments;
+        document.getElementById('commentCount').textContent = allComments.length;
+        renderComments();
+    } catch (e) {
+        console.warn('[评论] 提交失败', e);
+    }
+}
+
+function updateFooterButtons() {
+    if (!currentPost) return;
+    const liked = getLiked();
+    const coined = getCoined();
+    const bm = getBookmarks();
+    document.getElementById('footerLikeCount').textContent = currentPost.likes || 0;
+    document.getElementById('footerCoinCount').textContent = currentPost.coins || 0;
+    document.getElementById('footerStarCount').textContent = bm.indexOf(currentPost.id) !== -1 ? 1 : 0;
+    document.getElementById('footerLike').classList.toggle('active', liked.indexOf(currentPost.id) !== -1);
+    document.getElementById('footerCoin').classList.toggle('active', coined.indexOf(currentPost.id) !== -1);
+    document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
 }
 
 // ---------- localStorage 工具 ----------
@@ -218,26 +344,18 @@ function toggleBookmark(id) {
     render();
 }
 function getFollowing() { try { return JSON.parse(localStorage.getItem(K_FOLLOW) || '[]'); } catch (e) { return []; } }
+function getLiked() { try { return JSON.parse(localStorage.getItem(K_LIKED) || '[]'); } catch (e) { return []; } }
+function getCoined() { try { return JSON.parse(localStorage.getItem(K_COINED) || '[]'); } catch (e) { return []; } }
 
 // ---------- 工具 ----------
 function formatTime(t) {
     if (!t) return '-';
-    // 2026-11-10 03:06:20 → 11-10 03:06
     const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!m) return t;
     return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
 }
-
 function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
 }
-
-// 后端没通时的示例数据
-const SAMPLE_POSTS = [
-    { id: 4, title: '有人来换越狱牌吗', content: '有三张多的可以换', author: 'AAA小雷音寺住持', tags: '物品交换', views: 32, replies: 0, created_at: '2026-11-10 03:06:20' },
-    { id: 3, title: '三楼食堂今天的麻辣香锅绝了', content: '推荐加牛肉和藕片，排队大概 15 分钟', author: '食堂常客', tags: '食堂', views: 210, replies: 2, created_at: '2026-11-10 03:06:20' },
-    { id: 2, title: 'CCA 招新｜机器人组还差一个机械臂手', content: '下周招新，零基础也能教', author: 'RoboRay', tags: '社团招新', views: 86, replies: 1, created_at: '2026-11-10 03:06:20' },
-    { id: 1, title: '欢迎来到 YWIES 论坛', content: '这里是我们学校自己的校园论坛', author: '论坛管理员', tags: '闲聊', views: 128, replies: 2, created_at: '2026-11-10 03:06:20' }
-];
