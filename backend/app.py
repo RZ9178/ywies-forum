@@ -161,10 +161,24 @@ def frontend_files(path):
     return send_from_directory(FRONTEND_DIR, path)
 
 
+def _migrate():
+    """启动时自动补列：旧库可能没有 tags 字段。"""
+    conn = get_db()
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(posts)").fetchall()]
+        if "tags" not in cols:
+            conn.execute("ALTER TABLE posts ADD COLUMN tags TEXT DEFAULT ''")
+            conn.commit()
+            print("[迁移] 已给 posts 表加上 tags 列")
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     # 第一次跑先执行：python db_init.py
     if not os.path.exists(DB_PATH):
         print("[提示] 数据库不存在，正在自动初始化...")
         from db_init import create_tables
         create_tables()
+    _migrate()
     app.run(host="0.0.0.0", port=5000, debug=True)
