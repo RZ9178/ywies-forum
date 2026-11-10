@@ -449,7 +449,7 @@ def _migrate():
 
         admin_email = os.getenv("ADMIN_EMAIL", "admin@ywies.local")
         admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-        admin_row = conn.execute("SELECT id FROM users WHERE is_admin=1").fetchone()
+        admin_row = conn.execute("SELECT id, email FROM users WHERE is_admin=1").fetchone()
         if not admin_row:
             pwd_hash = generate_password_hash(admin_password)
             conn.execute(
@@ -458,6 +458,17 @@ def _migrate():
             )
             conn.commit()
             print(f"[初始化] 管理员账号：{admin_email}（密码：{admin_password}）")
+        else:
+            # 每次启动用环境变量同步管理员邮箱和密码
+            pwd_hash = generate_password_hash(admin_password)
+            conn.execute(
+                "UPDATE users SET email=?, password=? WHERE id=?",
+                (admin_email, pwd_hash, admin_row["id"]),
+            )
+            conn.commit()
+            if admin_row["email"] != admin_email:
+                print(f"[更新] 管理员邮箱已改为：{admin_email}")
+            print(f"[同步] 管理员密码已按环境变量更新")
     finally:
         conn.close()
 
