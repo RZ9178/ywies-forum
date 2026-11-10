@@ -46,14 +46,17 @@ class _DbWrapper:
     def __init__(self, conn, use_pg):
         self._conn = conn
         self._use_pg = use_pg
-        # SQLite 支持 row_factory，PostgreSQL 用 RealDictCursor
         if not use_pg:
             conn.row_factory = sqlite3.Row
 
     def execute(self, sql, params=()):
         if self._use_pg:
             sql = sql.replace("?", "%s")
-        return self._conn.execute(sql, params)
+            cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql, params)
+            return cur
+        else:
+            return self._conn.execute(sql, params)
 
     def commit(self):
         self._conn.commit()
@@ -65,7 +68,6 @@ class _DbWrapper:
 def get_db():
     if DATABASE_URL:
         conn = psycopg2.connect(DATABASE_URL)
-        conn.cursor_factory = psycopg2.extras.RealDictCursor
         return _DbWrapper(conn, use_pg=True)
     else:
         conn = sqlite3.connect(DB_PATH)
