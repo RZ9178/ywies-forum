@@ -185,7 +185,7 @@ def frontend_files(path):
 
 
 def _migrate():
-    """启动时自动补列：旧库可能没有 tags / likes / coins 字段。"""
+    """启动时自动补列 + 清理旧种子数据。"""
     conn = get_db()
     try:
         for table, cols in [
@@ -199,6 +199,22 @@ def _migrate():
                                  else f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT ''")
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
         conn.commit()
+
+        # 一次性清理：删掉旧版预置的 4 条种子帖子及其评论
+        seed_titles = (
+            "欢迎来到 YWIES 论坛",
+            "CCA 招新｜机器人组还差一个机械臂手",
+            "三楼食堂今天的麻辣香锅绝了",
+            "有人来换越狱牌吗",
+            "距离阿哈出世还有最后1天",
+        )
+        placeholders = ",".join("?" for _ in seed_titles)
+        deleted = conn.execute(
+            f"DELETE FROM posts WHERE title IN ({placeholders})", seed_titles
+        ).rowcount
+        if deleted:
+            conn.commit()
+            print(f"[迁移] 已清理 {deleted} 条旧种子测试帖子")
     finally:
         conn.close()
 
