@@ -33,5 +33,8 @@ async function fetchDetail() {
 
 function renderDetail(post) {
     document.getElementById('detail-title').textContent = post.title || '无标题';
+    const meta = document.getElementById('detail-meta');
+    const tags = post.tags ? '[' + post.tags + '] ' : '';
+    meta.textContent = tags + (post.author || '匿名') + ' · 浏览 ' + (post.views || 0) + ' · 回复 ' + (post.replies || 0) + ' · ' + (post.created_at || '');
     document.getElementById('detail-content').textContent = post.content || '暂无内容';
 }

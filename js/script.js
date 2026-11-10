@@ -1,223 +1,243 @@
 // ============================================
-// 首页逻辑：从 Flask 后端拉帖子列表，渲染成绳网风瀑布流卡片
-// 后端接口：GET http://127.0.0.1:5000/api/posts
+// 首页逻辑：极简 BBS 列表
+// 后端：GET /api/posts
 // ============================================
 
 const API = 'http://127.0.0.1:5000/api/posts';
 
+let allPosts = [];
+let currentTab = 'latest';
+let currentTag = '';
+let searchQuery = '';
+
+// localStorage 键
+const K_READ = 'ywies_read';
+const K_BOOKMARK = 'ywies_bookmarked';
+const K_FOLLOW = 'ywies_following';
+
 window.addEventListener('DOMContentLoaded', function () {
     fetchPosts();
-    bindFilterTabs();
+    bindTabs();
+    bindTags();
+    bindSearch();
+    bindBell();
 });
 
 async function fetchPosts() {
-    const list = document.getElementById('post-list');
     try {
         const res = await fetch(API);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        // 后端可能直接返回数组，也可能包一层 {posts:[...]} 或 {data:[...]}
-        const posts = Array.isArray(data) ? data : (data.posts || data.data || []);
-        renderPosts(posts);
+        allPosts = Array.isArray(data) ? data : (data.posts || data.data || []);
     } catch (e) {
-        console.warn('[首页] 拉取 /api/posts 失败，使用示例数据：', e.message);
-        renderPosts(SAMPLE_POSTS);
+        console.warn('[首页] 拉取失败，使用示例数据：', e.message);
+        allPosts = SAMPLE_POSTS;
     }
+    render();
 }
 
-function renderPosts(posts) {
-    const list = document.getElementById('post-list');
-    list.innerHTML = '';
-    if (!posts || !posts.length) {
-        document.getElementById('empty-state').hidden = false;
+// ---------- 渲染 ----------
+function render() {
+    let list = allPosts.slice();
+
+    // 标签筛选
+    if (currentTag) {
+        list = list.filter(function (p) {
+            return (p.tags || '').includes(currentTag);
+        });
+    }
+
+    // 搜索
+    if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        list = list.filter(function (p) {
+            return (p.title || '').toLowerCase().includes(q) ||
+                   (p.content || '').toLowerCase().includes(q) ||
+                   (p.author || '').toLowerCase().includes(q);
+        });
+    }
+
+    // Tab 排序/过滤
+    if (currentTab === 'latest') {
+        list.sort(function (a, b) { return b.id - a.id; });
+    } else if (currentTab === 'hot') {
+        list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
+    } else if (currentTab === 'unread') {
+        const read = getRead();
+        list = list.filter(function (p) { return read.indexOf(p.id) === -1; });
+        list.sort(function (a, b) { return b.id - a.id; });
+    } else if (currentTab === 'followed') {
+        const following = getFollowing();
+        list = list.filter(function (p) { return following.indexOf(p.author) !== -1; });
+    } else if (currentTab === 'bookmarked') {
+        const bm = getBookmarks();
+        list = list.filter(function (p) { return bm.indexOf(p.id) !== -1; });
+    }
+    // all = 不过滤，按 id 倒序
+    if (currentTab === 'all') {
+        list.sort(function (a, b) { return b.id - a.id; });
+    }
+
+    renderList(list);
+}
+
+function renderList(list) {
+    const wrap = document.getElementById('postList');
+    const empty = document.getElementById('emptyState');
+    wrap.innerHTML = '';
+
+    if (!list.length) {
+        empty.hidden = false;
         return;
     }
-    posts.forEach(function (p) {
-        list.appendChild(createCard(p));
-    });
-}
+    empty.hidden = true;
 
-// 后端字段名不确定，这里做一层兼容：依次尝试多个可能的 key
-function pick(obj, keys, fallback) {
-    for (let i = 0; i < keys.length; i++) {
-        const v = obj[keys[i]];
-        if (v !== undefined && v !== null && v !== '') return v;
-    }
-    return fallback;
-}
+    const read = getRead();
+    const bm = getBookmarks();
 
-const AVATAR_COLORS = ['#c6dd4e', '#6ec6ff', '#ff9ec6', '#ffd46e', '#9ad6c0', '#c9a8ff'];
+    list.forEach(function (p) {
+        const row = document.createElement('div');
+        row.className = 'post-row';
 
-function createCard(p) {
-    const id       = pick(p, ['id', '_id', 'post_id'], 0);
-    const author    = pick(p, ['author', 'username', 'nickname', 'name', 'user_name'], '匿名同学');
-    const avatarUrl = pick(p, ['avatar', 'avatar_url', 'user_avatar', 'head_url'], '');
-    const image     = pick(p, ['image', 'image_url', 'pic', 'cover', 'imageUrl', 'img'], '');
-    const title     = pick(p, ['title'], '');
-    const text      = pick(p, ['content', 'text', 'body', 'description'], '');
-    const views     = pick(p, ['views', 'view_count', 'views_count', 'read_count'], 0);
-    const replies   = pick(p, ['replies', 'reply_count', 'comments', 'comment_count'], 0);
+        const isRead = read.indexOf(p.id) !== -1;
+        const isBm = bm.indexOf(p.id) !== -1;
 
-    const card = document.createElement('article');
-    card.className = 'post-card' + (image ? '' : ' no-media');
-    card.addEventListener('click', function () {
-        // 预留详情页入口
-        window.location.href = 'detail.html?id=' + id;
-    });
+        row.innerHTML =
+            '<span class="' + (isRead ? 'read-dot' : 'unread-dot') + '"></span>' +
+            '<div class="col-main">' +
+                '<span class="post-title">' + escapeHtml(p.title || '无标题') + '</span>' +
+                (p.tags ? '<span class="post-tag">' + escapeHtml(p.tags.split(',')[0]) + '</span>' : '') +
+            '</div>' +
+            '<span class="col-author"><a href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a></span>' +
+            '<span class="col-replies">' + (p.replies || 0) + '</span>' +
+            '<span class="col-views">' + (p.views || 0) + '</span>' +
+            '<span class="col-time">' + formatTime(p.created_at) + '</span>' +
+            '<button class="star-btn' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏">' + (isBm ? '★' : '☆') + '</button>';
 
-    // 浏览量角标
-    const viewsEl = document.createElement('div');
-    viewsEl.className = 'card-views';
-    viewsEl.innerHTML = '<span>👁</span><span>' + formatNum(views) + '</span>';
-    card.appendChild(viewsEl);
+        // 点击整行 → 详情页，标记已读
+        row.addEventListener('click', function (e) {
+            if (e.target.classList.contains('star-btn')) return;
+            if (e.target.tagName === 'A') return;
+            markRead(p.id);
+            window.location.href = 'detail.html?id=' + p.id;
+        });
 
-    // 配图（可选）
-    if (image) {
-        const media = document.createElement('div');
-        media.className = 'card-media';
-        const img = document.createElement('img');
-        img.src = image;
-        img.alt = '';
-        img.loading = 'lazy';
-        // 图片挂了就自动降级成无图卡片，避免头像被拉空
-        img.onerror = function () {
-            media.remove();
-            card.classList.add('no-media');
-        };
-        media.appendChild(img);
-        card.appendChild(media);
-    }
+        // 收藏
+        row.querySelector('.star-btn').addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleBookmark(p.id);
+        });
 
-    // 作者行
-    const authorRow = document.createElement('div');
-    authorRow.className = 'card-author';
-    let avatarHtml;
-    if (avatarUrl) {
-        avatarHtml = '<div class="avatar"><img src="' + avatarUrl + '" alt=""></div>';
-    } else {
-        const color = AVATAR_COLORS[Math.abs(hashCode(author)) % AVATAR_COLORS.length];
-        avatarHtml = '<div class="avatar" style="background:' + color + ';color:#1a1a10;">'
-                   + escapeHtml(author.charAt(0).toUpperCase()) + '</div>';
-    }
-    authorRow.innerHTML = avatarHtml + '<span class="author-name">' + escapeHtml(author) + '</span>';
-    card.appendChild(authorRow);
-
-    // 正文预览
-    const body = document.createElement('div');
-    body.className = 'card-body';
-    const textEl = document.createElement('p');
-    textEl.className = 'card-text';
-    const fullText = title ? (title + (text ? '\n' + text : '')) : text;
-    textEl.textContent = fullText || '（无内容）';
-    body.appendChild(textEl);
-
-    // 回复数
-    if (Number(replies) > 0) {
-        const r = document.createElement('div');
-        r.className = 'card-replies';
-        r.innerHTML = '<span>💬</span><span>' + formatNum(replies) + '</span>';
-        body.appendChild(r);
-    }
-
-    card.appendChild(body);
-    return card;
-}
-
-function formatNum(n) {
-    n = Number(n) || 0;
-    if (n >= 10000) return (n / 10000).toFixed(1) + 'w';
-    if (n >= 1000)  return (n / 1000).toFixed(1) + 'k';
-    return String(n);
-}
-
-function hashCode(s) {
-    let h = 0;
-    s = String(s);
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-    return h;
-}
-
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-}
-
-// 筛选标签：先做视觉切换，真实过滤以后再做
-function bindFilterTabs() {
-    document.querySelectorAll('.filter-pill').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            document.querySelectorAll('.filter-pill').forEach(function (b) {
-                b.classList.remove('active');
+        // 作者名 → 用户主页（简单 alert，以后再做独立页面）
+        const authorLink = row.querySelector('.col-author a');
+        if (authorLink) {
+            authorLink.addEventListener('click', function (e) {
+                e.stopPropagation();
+                const name = this.getAttribute('data-author');
+                alert('用户：' + name + '\n（用户主页正在建设中，以后可查看该用户所有帖子）');
             });
-            btn.classList.add('active');
+        }
+
+        wrap.appendChild(row);
+    });
+}
+
+// ---------- 交互绑定 ----------
+function bindTabs() {
+    document.querySelectorAll('.tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+            tab.classList.add('active');
+            currentTab = tab.getAttribute('data-tab');
+            render();
         });
     });
 }
 
-// 后端没通时的示例数据，保证 UI 不是空的
+function bindTags() {
+    document.querySelectorAll('.tag-pill').forEach(function (pill) {
+        pill.addEventListener('click', function () {
+            document.querySelectorAll('.tag-pill').forEach(function (p) { p.classList.remove('active'); });
+            pill.classList.add('active');
+            currentTag = pill.getAttribute('data-tag');
+            render();
+        });
+    });
+}
+
+function bindSearch() {
+    document.getElementById('searchInput').addEventListener('input', function (e) {
+        searchQuery = e.target.value.trim();
+        render();
+    });
+}
+
+function bindBell() {
+    document.getElementById('bellBtn').addEventListener('click', function () {
+        renderNotifs();
+        document.getElementById('notifModal').hidden = false;
+        document.getElementById('bellDot').hidden = true;
+    });
+    document.getElementById('notifClose').addEventListener('click', function () {
+        document.getElementById('notifModal').hidden = true;
+    });
+    document.getElementById('notifModal').addEventListener('click', function (e) {
+        if (e.target === this) this.hidden = true;
+    });
+}
+
+// ---------- 通知 ----------
+function renderNotifs() {
+    const list = document.getElementById('notifList');
+    const notifs = [
+        { title: '欢迎来到 YWIES 论坛', text: '这里是我们学校自己的校园论坛，欢迎发帖交流、社团组队、物品交换。', time: '2026-11-10' },
+        { title: '举报处理回执', text: '你举报的帖子已处理完毕，感谢你维护论坛环境。', time: '2026-11-09' },
+        { title: '系统通知', text: '论坛 1.0 版本上线，如有 bug 请联系学生会。', time: '2026-11-08' }
+    ];
+    list.innerHTML = notifs.map(function (n) {
+        return '<div class="notif-item">' +
+            '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+            '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
+            '<div class="notif-time">' + escapeHtml(n.time) + '</div>' +
+        '</div>';
+    }).join('');
+}
+
+// ---------- localStorage 工具 ----------
+function getRead() { try { return JSON.parse(localStorage.getItem(K_READ) || '[]'); } catch (e) { return []; } }
+function markRead(id) {
+    const r = getRead();
+    if (r.indexOf(id) === -1) { r.push(id); localStorage.setItem(K_READ, JSON.stringify(r)); }
+}
+function getBookmarks() { try { return JSON.parse(localStorage.getItem(K_BOOKMARK) || '[]'); } catch (e) { return []; } }
+function toggleBookmark(id) {
+    const bm = getBookmarks();
+    const i = bm.indexOf(id);
+    if (i === -1) bm.push(id); else bm.splice(i, 1);
+    localStorage.setItem(K_BOOKMARK, JSON.stringify(bm));
+    render();
+}
+function getFollowing() { try { return JSON.parse(localStorage.getItem(K_FOLLOW) || '[]'); } catch (e) { return []; } }
+
+// ---------- 工具 ----------
+function formatTime(t) {
+    if (!t) return '-';
+    // 2026-11-10 03:06:20 → 11-10 03:06
+    const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) return t;
+    return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+}
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+// 后端没通时的示例数据
 const SAMPLE_POSTS = [
-    {
-        id: 1,
-        author: 'AAA小雷音寺住持',
-        title: '有人来换越狱牌吗',
-        content: '有三张多的可以换',
-        views: 11,
-        replies: 0
-    },
-    {
-        id: 2,
-        author: '绳网用户11451415',
-        image: 'https://picsum.photos/seed/shipdeck/600/720',
-        content: '这个绳网人均每天至少一个善善~（1/100）百人善楼',
-        views: 263,
-        replies: 3
-    },
-    {
-        id: 3,
-        author: '新艾利都治安局青衣',
-        content: '你举报的委托《刚来，这里就是暗网吗》已处理完毕，感谢你维护绳网环境！处理备注：已通知发帖人处理。\n\n额，跟没有处理一样\n我没招了',
-        views: 44,
-        replies: 5
-    },
-    {
-        id: 4,
-        author: '千早愛音',
-        image: 'https://picsum.photos/seed/keyan/600/520',
-        title: '爱素 1~2 [繁中]',
-        content: 'https://drive.google.com/file/d/1XwoacpqhU8T3Db1T...',
-        views: 16,
-        replies: 1
-    },
-    {
-        id: 5,
-        author: '娶小光师姐回家',
-        content: '每日一水\nrt，依旧没有图',
-        views: 10,
-        replies: 2
-    },
-    {
-        id: 6,
-        author: 'AAA反舌鸟神秘金',
-        image: 'https://picsum.photos/seed/gachavictory/600/640',
-        content: '贝果计划第一次破千万喵',
-        views: 12,
-        replies: 1
-    },
-    {
-        id: 7,
-        author: 'YWIES路人甲',
-        content: 'CCA 招新有没有一起组队做机器人的？我们还差一个机械臂手，有兴趣的同学评论区扣 1',
-        views: 88,
-        replies: 14
-    },
-    {
-        id: 8,
-        author: '食堂常客',
-        image: 'https://picsum.photos/seed/canteen/600/480',
-        title: '三楼今天的麻辣香锅绝了',
-        content: '推荐加牛肉和藕片，排队大概 15 分钟，亲测不踩雷',
-        views: 156,
-        replies: 9
-    }
+    { id: 4, title: '有人来换越狱牌吗', content: '有三张多的可以换', author: 'AAA小雷音寺住持', tags: '物品交换', views: 32, replies: 0, created_at: '2026-11-10 03:06:20' },
+    { id: 3, title: '三楼食堂今天的麻辣香锅绝了', content: '推荐加牛肉和藕片，排队大概 15 分钟', author: '食堂常客', tags: '食堂', views: 210, replies: 2, created_at: '2026-11-10 03:06:20' },
+    { id: 2, title: 'CCA 招新｜机器人组还差一个机械臂手', content: '下周招新，零基础也能教', author: 'RoboRay', tags: '社团招新', views: 86, replies: 1, created_at: '2026-11-10 03:06:20' },
+    { id: 1, title: '欢迎来到 YWIES 论坛', content: '这里是我们学校自己的校园论坛', author: '论坛管理员', tags: '闲聊', views: 128, replies: 2, created_at: '2026-11-10 03:06:20' }
 ];

@@ -67,6 +67,7 @@ def _row_to_dict(row, reply_count=None):
         "title": row["title"],
         "content": row["content"],
         "author": row["author"],
+        "tags": row["tags"] or "",
         "image": row["image_url"] or "",
         "views": row["views"],
         "replies": reply_count if reply_count is not None else 0,
@@ -94,11 +95,12 @@ def list_posts():
 
 @app.route("/api/posts", methods=["POST"])
 def create_post():
-    """POST /api/posts -> 发新帖，body: {title, content}。"""
+    """POST /api/posts -> 发新帖，body: {title, content, tags}。"""
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
     author = (data.get("author") or "匿名同学").strip()
+    tags = (data.get("tags") or "").strip()
 
     if not title:
         return jsonify({"error": "title 不能为空"}), 400
@@ -108,8 +110,8 @@ def create_post():
     conn = get_db()
     try:
         cur = conn.execute(
-            "INSERT INTO posts (title, content, author) VALUES (?, ?, ?)",
-            (title, content, author),
+            "INSERT INTO posts (title, content, author, tags) VALUES (?, ?, ?, ?)",
+            (title, content, author, tags),
         )
         conn.commit()
         new_id = cur.lastrowid

@@ -21,6 +21,7 @@ CREATE TABLE posts (
     title       TEXT NOT NULL,
     content     TEXT NOT NULL,
     author      TEXT NOT NULL DEFAULT '匿名同学',
+    tags        TEXT DEFAULT '',
     image_url   TEXT DEFAULT '',
     views       INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -40,19 +41,19 @@ CREATE TABLE comments (
 INSERT INTO users (username, password) VALUES
     ('demo', 'demo123');
 
-INSERT INTO posts (title, content, author, image_url, views) VALUES
+INSERT INTO posts (title, content, author, tags, views) VALUES
     ('欢迎来到 YWIES 论坛',
      '这是我们学校自己的校园论坛，大家可以在这里发帖交流、CCA 组队、约饭、换物～',
-     '论坛管理员', '', 128),
+     '论坛管理员', '闲聊', 128),
     ('CCA 招新｜机器人组还差一个机械臂手',
      '下周招新，我们组还差一个负责机械臂的同学，有兴趣的评论区扣 1，技术栈不限，零基础也能教。',
-     'RoboRay', '', 86),
+     'RoboRay', '社团招新', 86),
     ('三楼食堂今天的麻辣香锅绝了',
      '推荐加牛肉和藕片，排队大概 15 分钟，亲测不踩雷。',
-     '食堂常客', '', 210),
+     '食堂常客', '食堂', 210),
     ('有人来换越狱牌吗',
      '有三张多的可以换，私聊。',
-     'AAA小雷音寺住持', '', 32);
+     'AAA小雷音寺住持', '物品交换', 32);
 
 INSERT INTO comments (post_id, author, content) VALUES
     (1, '路人甲', '前排支持！'),

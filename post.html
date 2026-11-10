@@ -3,31 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>发帖 - YWIES Forum</title>
+    <title>发帖 - YWIES 论坛</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <!-- 顶部导航 -->
-    <header class="header">
-        <div class="header-left">
-            <img src="school-badge.png" class="logo-img" alt="校徽">
-            <span class="logo-text">YWIES论坛</span>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <img src="school-badge.png" class="brand-logo" alt="校徽">
+                <span class="brand-name">YWIES 论坛</span>
+            </div>
+            <div class="topbar-actions">
+                <a href="index.html" class="btn">返回首页</a>
+            </div>
         </div>
-        <nav class="header-right">
-            <a href="index.html" class="btn-gray">返回首页</a>
-            <span class="btn-post" style="cursor:default;">发帖中…</span>
-        </nav>
     </header>
 
     <!-- 发帖表单 -->
-    <main class="container">
+    <main class="container" style="max-width:720px;margin:0 auto;padding:20px;">
         <div class="form-panel">
-            <h2 style="margin-bottom: 20px; color:#fff;">发布新帖子</h2>
+            <h2 style="margin-bottom: 20px; color:#fff; font-size:20px;">发布新帖子</h2>
 
             <div class="form-group">
                 <label>标题</label>
                 <input type="text" id="postTitle" placeholder="给帖子起个标题...">
+            </div>
+
+            <div class="form-group">
+                <label>标签</label>
+                <select id="postTag" style="width:100%;padding:10px 12px;background:#0d0d0f;border:1px solid #26262c;border-radius:8px;color:#fff;font-size:14px;">
+                    <option value="">不选</option>
+                    <option value="食堂">食堂</option>
+                    <option value="社团招新">社团招新</option>
+                    <option value="物品交换">物品交换</option>
+                    <option value="求助">求助</option>
+                    <option value="闲聊">闲聊</option>
+                </select>
             </div>
 
             <div class="form-group">
@@ -48,33 +61,22 @@
     <div class="chat-panel" id="chatPanel">
         <div class="chat-header">
             <div class="chat-header-left">
-                <div class="chat-avatar">
-                    <img src="mascot.png" alt="耀耀">
-                </div>
-                <span data-i18n="chatTitle">耀耀</span>
+                <div class="chat-avatar"><img src="mascot.png" alt="耀耀"></div>
+                <span>耀耀</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <select id="chatRole">
-                    <option value="study">学习助手</option>
-                    <option value="campus">校园百事通</option>
-                </select>
-                <button class="chat-close-btn" onclick="closeChat()" title="关闭">×</button>
-            </div>
+            <button class="chat-close-btn" onclick="closeChat()">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="chat-msg ai">
-                <div class="bubble" data-i18n="chatWelcome">你好！我是耀耀，有什么可以帮你的？</div>
-            </div>
+            <div class="chat-msg ai"><div class="bubble">你好！我是耀耀，有什么可以帮你的？</div></div>
         </div>
         <div class="chat-input-area">
-            <input type="text" id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="输入消息...">
-            <button id="chatSendBtn" data-i18n="sendBtn">发送</button>
+            <input type="text" id="chatInput" placeholder="输入消息...">
+            <button id="chatSendBtn">发送</button>
         </div>
     </div>
 
     <script src="js/language.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/post.js"></script>
-    <script>applyLanguage();</script>
 </body>
 </html>

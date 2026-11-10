@@ -3,66 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YWIES论坛</title>
+    <title>YWIES 论坛</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <!-- 顶部导航 -->
-    <header class="header">
-        <div class="header-left">
-            <img src="school-badge.png" class="logo-img" alt="校徽">
-            <span class="logo-text">YWIES论坛</span>
-        </div>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <img src="school-badge.png" class="brand-logo" alt="校徽">
+                <span class="brand-name">YWIES 论坛</span>
+            </div>
 
-        <div class="search-box">
-            <input type="text" id="searchInput" placeholder="搜索...">
-            <button class="search-btn" aria-label="搜索">🔍</button>
-        </div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="搜索帖子...">
+            </div>
 
-        <nav class="header-right">
-            <button class="nav-tab">推送</button>
-            <button class="nav-tab">私信</button>
-            <a href="post.html" class="btn-post">发帖</a>
-        </nav>
+            <div class="topbar-actions">
+                <button class="bell-btn" id="bellBtn" title="通知">
+                    🔔
+                    <span class="bell-dot" id="bellDot" hidden></span>
+                </button>
+                <a href="post.html" class="btn-post">发帖</a>
+            </div>
+        </div>
     </header>
 
-    <!-- 分类筛选标签 -->
-    <div class="filter-bar">
-        <button class="filter-pill active">最新</button>
-        <button class="filter-pill">热门</button>
-        <button class="filter-pill">未看</button>
-        <button class="filter-pill">关注</button>
-        <button class="filter-pill">收藏</button>
-        <button class="filter-pill">全部</button>
+    <!-- Tab 导航 -->
+    <nav class="tab-bar">
+        <div class="tab-inner">
+            <button class="tab active" data-tab="latest">最新</button>
+            <button class="tab" data-tab="hot">热门</button>
+            <button class="tab" data-tab="unread">未看</button>
+            <button class="tab" data-tab="followed">关注</button>
+            <button class="tab" data-tab="bookmarked">收藏</button>
+            <button class="tab" data-tab="all">全部</button>
+        </div>
+    </nav>
+
+    <!-- 标签筛选 -->
+    <div class="tag-bar" id="tagBar">
+        <button class="tag-pill active" data-tag="">全部</button>
+        <button class="tag-pill" data-tag="食堂">食堂</button>
+        <button class="tag-pill" data-tag="社团招新">社团招新</button>
+        <button class="tag-pill" data-tag="物品交换">物品交换</button>
+        <button class="tag-pill" data-tag="求助">求助</button>
+        <button class="tag-pill" data-tag="闲聊">闲聊</button>
     </div>
 
-    <!-- 帖子瀑布流 -->
-    <main class="container">
-        <div class="post-grid" id="post-list"></div>
-        <div class="empty-state" id="empty-state" hidden>
-            还没有帖子，点右上角「发帖」发第一条吧～
+    <!-- 帖子列表 -->
+    <main class="list-wrap">
+        <div class="list-header">
+            <span class="col-main">标题</span>
+            <span class="col-author">作者</span>
+            <span class="col-replies">回复</span>
+            <span class="col-views">浏览</span>
+            <span class="col-time">最后回复</span>
+        </div>
+        <div id="postList"></div>
+        <div class="empty-state" id="emptyState" hidden>
+            这里还没有帖子，点右上角「发帖」发第一条吧
         </div>
     </main>
 
-    <!-- AI聊天窗口 - 耀耀 -->
+    <!-- 通知中心弹窗 -->
+    <div class="modal-mask" id="notifModal" hidden>
+        <div class="modal">
+            <div class="modal-head">
+                <span>通知中心</span>
+                <button class="modal-close" id="notifClose">×</button>
+            </div>
+            <div class="modal-body" id="notifList"></div>
+        </div>
+    </div>
+
+    <!-- AI 聊天窗口 - 耀耀 -->
     <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
         <img src="mascot.png" alt="耀耀">
     </button>
     <div class="chat-panel" id="chatPanel">
         <div class="chat-header">
             <div class="chat-header-left">
-                <div class="chat-avatar">
-                    <img src="mascot.png" alt="耀耀">
-                </div>
+                <div class="chat-avatar"><img src="mascot.png" alt="耀耀"></div>
                 <span>耀耀</span>
             </div>
-            <button class="chat-close-btn" onclick="closeChat()" title="关闭">×</button>
+            <button class="chat-close-btn" onclick="closeChat()">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="chat-msg ai">
-                <div class="bubble">你好！我是耀耀，有什么可以帮你的？</div>
-            </div>
+            <div class="chat-msg ai"><div class="bubble">你好！我是耀耀，有什么可以帮你的？</div></div>
         </div>
         <div class="chat-input-area">
             <input type="text" id="chatInput" placeholder="输入消息...">
