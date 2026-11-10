@@ -2,8 +2,8 @@
 // 首页逻辑：极简 BBS 列表 + 详情弹窗 + 发帖弹窗
 // ============================================
 
-const API = 'http://127.0.0.1:5000/api/posts';
-const TAGS_API = 'http://127.0.0.1:5000/api/tags';
+const API = '/api/posts';
+const TAGS_API = '/api/tags';
 
 let allPosts = [];
 let allTags = [];

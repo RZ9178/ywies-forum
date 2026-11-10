@@ -4,7 +4,7 @@
 // 提交格式：{ title, content, tags }
 // ============================================
 
-const API = 'http://127.0.0.1:5000/api/posts';
+const API = '/api/posts';
 
 async function submitPost() {
     const title = document.getElementById('postTitle').value.trim();

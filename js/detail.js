@@ -3,7 +3,7 @@
 // 后端接口：GET http://127.0.0.1:5000/api/posts/<id>
 // ============================================
 
-const API = 'http://127.0.0.1:5000/api/posts';
+const API = '/api/posts';
 
 window.addEventListener('DOMContentLoaded', fetchDetail);
 
