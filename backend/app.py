@@ -52,9 +52,6 @@ class _DbWrapper:
     def execute(self, sql, params=()):
         if self._use_pg:
             sql = sql.replace("?", "%s")
-            # INSERT 语句自动追加 RETURNING id，方便获取自增 ID
-            if sql.strip().upper().startswith("INSERT") and "RETURNING" not in sql.upper():
-                sql += " RETURNING id"
             cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(sql, params)
             return cur
@@ -67,6 +64,15 @@ class _DbWrapper:
             row = cur.fetchone()
             return row["id"] if row else 0
         return cur.lastrowid
+
+    def last_id_by_key(self, table, key_col, key_val):
+        """插入后按唯一字段反查 ID（最稳妥，兼容两种数据库）"""
+        row = self.execute(f"SELECT id FROM {table} WHERE {key_col}=?", (key_val,)).fetchone()
+        return row["id"] if row else 0
+
+    def max_id(self, table):
+        row = self.execute(f"SELECT MAX(id) AS m FROM {table}").fetchone()
+        return row["m"] if row and row["m"] is not None else 0
 
     def commit(self):
         self._conn.commit()
@@ -166,12 +172,12 @@ def register():
     fake_email = username + "@ywies.local"
     conn = get_db()
     try:
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
             (fake_email, username, pwd_hash),
         )
-        user_id = conn.last_id(cur)
         conn.commit()
+        user_id = conn.last_id_by_key("users", "username", username)
         token = secrets.token_urlsafe(32)
         conn.execute(
             "UPDATE users SET token=?, token_expires=? WHERE id=?",
@@ -283,12 +289,12 @@ def create_post():
         return jsonify({"error": "图片太大"}), 400
     conn = get_db()
     try:
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO posts (title, content, author, tags, image_url) VALUES (?, ?, ?, ?, ?)",
             (title, content, author, tags, image),
         )
-        new_id = conn.last_id(cur)
         conn.commit()
+        new_id = conn.max_id("posts")
         row = conn.execute("SELECT * FROM posts WHERE id=?", (new_id,)).fetchone()
         return jsonify(_row_to_dict(row, 0)), 201
     finally:
@@ -351,12 +357,12 @@ def create_comment(post_id):
         return jsonify({"error": "内容不能为空"}), 400
     conn = get_db()
     try:
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO comments (post_id, author, content) VALUES (?, ?, ?)",
             (post_id, author, content),
         )
-        new_id = conn.last_id(cur)
         conn.commit()
+        new_id = conn.max_id("comments")
         return jsonify({"id": new_id, "post_id": post_id, "author": author,
                         "content": content, "likes": 0, "created_at": "刚刚"}), 201
     finally:
