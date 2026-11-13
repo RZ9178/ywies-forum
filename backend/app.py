@@ -529,9 +529,11 @@ def _migrate():
             """)
             conn.commit()
 
-        # 自动补列（兼容 SQLite 和 PostgreSQL）
+        # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
+        text_cols = {"tags", "email", "token", "image_url"}
+        col_sets = {}
         for table, cols in [
-            ("posts", ["tags", "likes", "coins"]),
+            ("posts", ["tags", "likes", "coins", "image_url"]),
             ("comments", ["likes"]),
             ("users", ["email", "is_admin", "token", "token_expires"]),
         ]:
@@ -541,9 +543,10 @@ def _migrate():
                 ).fetchall()]
             else:
                 existing = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+            col_sets[table] = set(existing)
             for col in cols:
                 if col not in existing:
-                    coltype = "TEXT DEFAULT ''" if col in ("tags", "email", "token") else "INTEGER DEFAULT 0"
+                    coltype = "TEXT DEFAULT ''" if col in text_cols else "INTEGER DEFAULT 0"
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
 
@@ -557,6 +560,30 @@ def _migrate():
                     conn.execute("ALTER TABLE users DROP COLUMN token")
                     conn.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
                     print("[迁移] 已重建 users.token 列为 TEXT")
+        conn.commit()
+
+        # 兼容老库：帖子配图列曾叫 image，把内容搬到新列 image_url（旧列保留不动）
+        if "image" in col_sets.get("posts", set()):
+            try:
+                moved = conn.execute(
+                    "UPDATE posts SET image_url=image "
+                    "WHERE (image_url IS NULL OR image_url='') AND image IS NOT NULL AND image<>''"
+                ).rowcount
+                conn.commit()
+                if moved:
+                    print(f"[迁移] 已把 {moved} 条帖子的旧 image 列内容迁到 image_url")
+            except Exception as e:
+                print(f"[迁移] 旧 image 列迁移跳过：{e}")
+
+        # 常用查询加索引（幂等，SQLite / PostgreSQL 都支持）
+        for ddl in (
+            "CREATE INDEX IF NOT EXISTS idx_users_token ON users(token)",
+            "CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id)",
+        ):
+            try:
+                conn.execute(ddl)
+            except Exception as e:
+                print(f"[迁移] 建索引跳过：{e}")
         conn.commit()
 
         # 清理旧种子帖子
@@ -584,7 +611,7 @@ def _migrate():
                 (admin_email, "管理员", pwd_hash),
             )
             conn.commit()
-            print(f"[初始化] 管理员账号：{admin_email}（密码：{admin_password}）")
+            print(f"[初始化] 管理员账号已创建：{admin_email}（密码见 ADMIN_PASSWORD 环境变量）")
         else:
             pwd_hash = generate_password_hash(admin_password)
             conn.execute(
@@ -600,9 +627,11 @@ def _migrate():
 
 
 if __name__ == "__main__":
-    if not os.path.exists(DB_PATH):
+    if not DATABASE_URL and not os.path.exists(DB_PATH):
         print("[提示] 数据库不存在，正在自动初始化...")
         from db_init import create_tables
         create_tables()
     _migrate()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # 线上默认关闭调试器（Werkzeug 调试页会暴露源码与执行入口）；本地设 FLASK_DEBUG=1 才开
+    debug_mode = os.getenv("FLASK_DEBUG", "").strip() in ("1", "true", "True") and not DATABASE_URL
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=debug_mode)
