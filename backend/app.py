@@ -17,6 +17,7 @@
 import os
 import re
 import sqlite3
+from datetime import datetime, timezone
 import secrets
 import time
 from functools import wraps
@@ -273,6 +274,22 @@ def chat():
     return jsonify({"reply": reply})
 
 
+def _fmt_time(value):
+    """把数据库时间统一成 'YYYY-MM-DD HH:MM:SS'（UTC）。
+    PostgreSQL 返回 datetime 对象（Flask 会序列化成英文 HTTP 日期），
+    SQLite 返回 'YYYY-MM-DD HH:MM:SS' 字符串，这里统一成同一种格式。"""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    text = str(value)
+    if len(text) >= 19 and text[4] == "-" and text[7] == "-":
+        return text[:19].replace("T", " ")
+    return text
+
+
 def _row_to_dict(row, reply_count=None):
     return {
         "id": row["id"],
@@ -285,7 +302,7 @@ def _row_to_dict(row, reply_count=None):
         "likes": row["likes"] if "likes" in row.keys() else 0,
         "coins": row["coins"] if "coins" in row.keys() else 0,
         "replies": reply_count if reply_count is not None else 0,
-        "created_at": row["created_at"],
+        "created_at": _fmt_time(row["created_at"]),
     }
 
 
@@ -372,7 +389,7 @@ def list_comments(post_id):
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
-        return jsonify([dict(r) for r in rows])
+        return jsonify([dict(r, created_at=_fmt_time(r["created_at"])) for r in rows])
     finally:
         conn.close()
 
@@ -456,7 +473,7 @@ def admin_users():
         rows = conn.execute(
             "SELECT id, username, email, is_admin, created_at FROM users ORDER BY id"
         ).fetchall()
-        return jsonify([dict(r) for r in rows])
+        return jsonify([dict(r, created_at=_fmt_time(r["created_at"])) for r in rows])
     finally:
         conn.close()
 

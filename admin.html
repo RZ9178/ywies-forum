@@ -62,7 +62,7 @@
                     return '<div class="admin-item">' +
                         '<div class="admin-item-info">' +
                             '<div class="admin-item-title">' + escapeHtml(p.title) + '</div>' +
-                            '<div class="admin-item-meta">' + escapeHtml(p.author) + ' · ' + p.replies + ' 评论 · ' + p.views + ' 浏览 · ' + p.created_at + '</div>' +
+                            '<div class="admin-item-meta">' + escapeHtml(p.author) + ' · ' + p.replies + ' 评论 · ' + p.views + ' 浏览 · ' + formatTime(p.created_at) + '</div>' +
                         '</div>' +
                         '<button class="btn-danger" onclick="delPost(' + p.id + ')">删除帖子</button>' +
                     '</div>';
@@ -92,7 +92,7 @@
                     return '<div class="admin-item">' +
                         '<div class="admin-item-info">' +
                             '<div class="admin-item-title">' + escapeHtml(u.username) + badge + '</div>' +
-                            '<div class="admin-item-meta">' + escapeHtml(u.email || '无邮箱') + ' · 注册于 ' + (u.created_at || '-') + '</div>' +
+                            '<div class="admin-item-meta">' + escapeHtml(u.email || '无邮箱') + ' · 注册于 ' + formatTime(u.created_at) + '</div>' +
                         '</div>' +
                         (canDel ? '<button class="btn-danger" onclick="delUser(' + u.id + ')">删除账号</button>' : '<span style="color:#6b6b76;font-size:13px;">（当前账号）</span>') +
                     '</div>';
@@ -110,6 +110,16 @@
         }
 
         function doLogout() { Auth.logout(); window.location.href = 'login.html'; }
+
+        function formatTime(t) {
+            if (!t) return '-';
+            const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+            if (!m) return t;
+            const pad = function (n) { return String(n).padStart(2, '0'); };
+            const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+            if (isNaN(d.getTime())) return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+            return m[1] + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+        }
 
         function escapeHtml(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

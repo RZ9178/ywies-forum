@@ -534,9 +534,13 @@ function getCoined() { try { return JSON.parse(localStorage.getItem(K_COINED) ||
 
 function formatTime(t) {
     if (!t) return '-';
+    // 后端统一返回 UTC 的 "YYYY-MM-DD HH:MM:SS"，这里换算成本机时区显示
     const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
     if (!m) return t;
-    return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+    const pad = function (n) { return String(n).padStart(2, '0'); };
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+    if (isNaN(d.getTime())) return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
+    return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
