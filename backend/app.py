@@ -170,8 +170,8 @@ def register():
             "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
             (fake_email, username, pwd_hash),
         )
-        conn.commit()
         user_id = conn.last_id(cur)
+        conn.commit()
         token = secrets.token_urlsafe(32)
         conn.execute(
             "UPDATE users SET token=?, token_expires=? WHERE id=?",
@@ -287,8 +287,8 @@ def create_post():
             "INSERT INTO posts (title, content, author, tags, image_url) VALUES (?, ?, ?, ?, ?)",
             (title, content, author, tags, image),
         )
-        conn.commit()
         new_id = conn.last_id(cur)
+        conn.commit()
         row = conn.execute("SELECT * FROM posts WHERE id=?", (new_id,)).fetchone()
         return jsonify(_row_to_dict(row, 0)), 201
     finally:
@@ -355,8 +355,8 @@ def create_comment(post_id):
             "INSERT INTO comments (post_id, author, content) VALUES (?, ?, ?)",
             (post_id, author, content),
         )
-        conn.commit()
         new_id = conn.last_id(cur)
+        conn.commit()
         return jsonify({"id": new_id, "post_id": post_id, "author": author,
                         "content": content, "likes": 0, "created_at": "刚刚"}), 201
     finally:
