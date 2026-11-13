@@ -486,7 +486,7 @@ def _migrate():
                     title TEXT NOT NULL,
                     content TEXT DEFAULT '',
                     author TEXT NOT NULL,
-                    image TEXT DEFAULT '',
+                    image_url TEXT DEFAULT '',
                     tags TEXT DEFAULT '',
                     likes INTEGER DEFAULT 0,
                     coins INTEGER DEFAULT 0,
