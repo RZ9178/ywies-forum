@@ -52,11 +52,21 @@ class _DbWrapper:
     def execute(self, sql, params=()):
         if self._use_pg:
             sql = sql.replace("?", "%s")
+            # INSERT 语句自动追加 RETURNING id，方便获取自增 ID
+            if sql.strip().upper().startswith("INSERT") and "RETURNING" not in sql.upper():
+                sql += " RETURNING id"
             cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(sql, params)
             return cur
         else:
             return self._conn.execute(sql, params)
+
+    def last_id(self, cur):
+        """兼容 SQLite 和 PostgreSQL 获取最后插入的 ID"""
+        if self._use_pg:
+            row = cur.fetchone()
+            return row["id"] if row else 0
+        return cur.lastrowid
 
     def commit(self):
         self._conn.commit()
@@ -161,7 +171,7 @@ def register():
             (fake_email, username, pwd_hash),
         )
         conn.commit()
-        user_id = cur.lastrowid
+        user_id = conn.last_id(cur)
         token = secrets.token_urlsafe(32)
         conn.execute(
             "UPDATE users SET token=?, token_expires=? WHERE id=?",
@@ -278,7 +288,8 @@ def create_post():
             (title, content, author, tags, image),
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM posts WHERE id=?", (cur.lastrowid,)).fetchone()
+        new_id = conn.last_id(cur)
+        row = conn.execute("SELECT * FROM posts WHERE id=?", (new_id,)).fetchone()
         return jsonify(_row_to_dict(row, 0)), 201
     finally:
         conn.close()
@@ -345,7 +356,8 @@ def create_comment(post_id):
             (post_id, author, content),
         )
         conn.commit()
-        return jsonify({"id": cur.lastrowid, "post_id": post_id, "author": author,
+        new_id = conn.last_id(cur)
+        return jsonify({"id": new_id, "post_id": post_id, "author": author,
                         "content": content, "likes": 0, "created_at": "刚刚"}), 201
     finally:
         conn.close()
