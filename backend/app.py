@@ -172,18 +172,22 @@ def register():
     fake_email = username + "@ywies.local"
     conn = get_db()
     try:
+        # 先查重：SQLite 与 PostgreSQL 的异常类型不同，靠异常判断会漏
+        if conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+            return jsonify({"error": "这个昵称已经被注册了"}), 400
         conn.execute(
             "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
             (fake_email, username, pwd_hash),
         )
         conn.commit()
-        user_id = conn.last_id_by_key("users", "username", username)
         token = secrets.token_urlsafe(32)
+        # 按用户名写登录态，不依赖自增 ID（PG 下 cursor.lastrowid 取不到值）
         conn.execute(
-            "UPDATE users SET token=?, token_expires=? WHERE id=?",
-            (token, time.time() + SESSION_TTL, user_id)
+            "UPDATE users SET token=?, token_expires=? WHERE username=?",
+            (token, time.time() + SESSION_TTL, username)
         )
         conn.commit()
+        user_id = conn.last_id_by_key("users", "username", username)
     except sqlite3.IntegrityError:
         return jsonify({"error": "这个昵称已经被注册了"}), 400
     finally:
@@ -223,6 +227,25 @@ def me():
     if not user:
         return jsonify({"error": "未登录"}), 401
     return jsonify({"user": user})
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    """部署自检：确认线上跑的是哪个提交、连的是哪种数据库（不暴露密钥）"""
+    ok = True
+    try:
+        conn = get_db()
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        ok = False
+    return jsonify({
+        "ok": ok,
+        "db": "postgres" if DATABASE_URL else "sqlite",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "dev")[:7],
+    })
 
 
 @app.route("/chat", methods=["POST", "OPTIONS"])
