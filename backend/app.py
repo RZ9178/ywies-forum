@@ -33,7 +33,9 @@ app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "school_posts.db")
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..")
-DATABASE_URL = os.getenv("DATABASE_URL")
+# 环境变量里的连接串容易被粘贴带入换行 / 空格 / 引号，导致 PG 报
+# database "postgres\n" does not exist；这里统一清洗，双端都安全。
+DATABASE_URL = "".join((os.getenv("DATABASE_URL") or "").split()).strip('"').strip("'") or None
 
 _CODE_STORE = {}
 CODE_TTL = 300
@@ -83,7 +85,12 @@ class _DbWrapper:
 
 def get_db():
     if DATABASE_URL:
-        conn = psycopg2.connect(DATABASE_URL)
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+        except Exception as e:
+            # 只打印错误原因，不回显连接串内容（避免密码进日志）
+            print(f"[数据库] 连接 PostgreSQL 失败：{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
+            raise
         return _DbWrapper(conn, use_pg=True)
     else:
         conn = sqlite3.connect(DB_PATH)
@@ -631,6 +638,7 @@ if __name__ == "__main__":
         print("[提示] 数据库不存在，正在自动初始化...")
         from db_init import create_tables
         create_tables()
+    print("[数据库] 使用 PostgreSQL（云端）" if DATABASE_URL else "[数据库] 使用本地 SQLite")
     _migrate()
     # 线上默认关闭调试器（Werkzeug 调试页会暴露源码与执行入口）；本地设 FLASK_DEBUG=1 才开
     debug_mode = os.getenv("FLASK_DEBUG", "").strip() in ("1", "true", "True") and not DATABASE_URL
