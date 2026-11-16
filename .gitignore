@@ -1,0 +1,11 @@
+# 本地/文档类文件，不进公开仓库
+HANDOVER.md
+DEEPSEEK_*.md
+DEEPSEEK_HANDOVER_PROMPT.md
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 本地数据库（线上走 Supabase）
+backend/school_posts.db

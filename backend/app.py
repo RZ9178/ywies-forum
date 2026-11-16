@@ -457,9 +457,10 @@ def list_tags():
 def admin_stats():
     conn = get_db()
     try:
-        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        post_count = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
-        comment_count = conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
+        # 注意：PostgreSQL 的 RealDictCursor 返回字典，不能用 [0] 取下标，统一用列别名 + 键访问
+        user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+        post_count = conn.execute("SELECT COUNT(*) AS c FROM posts").fetchone()["c"]
+        comment_count = conn.execute("SELECT COUNT(*) AS c FROM comments").fetchone()["c"]
         return jsonify({"users": user_count, "posts": post_count, "comments": comment_count})
     finally:
         conn.close()
