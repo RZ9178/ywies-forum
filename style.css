@@ -1113,7 +1113,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .star-btn.starred .icon { fill: currentColor; }
 
 .list-header { display: none; }
-.list-wrap { max-width: 1400px; }
+.list-wrap { max-width: 1200px; }
 
 .post-grid {
     display: grid;
