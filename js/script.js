@@ -15,7 +15,7 @@ let allComments = [];
 let commentSort = 'earliest';
 let selectedTags = [];
 let uploadedImages = [];
-let maxPostImages = 9;
+let maxPostImages = 3;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_MAX_EDGE = 1600;
 const IMAGE_KEEP_BYTES = 600 * 1024;
@@ -46,6 +46,7 @@ window.addEventListener('DOMContentLoaded', function () {
     bindBell();
     bindDetailModal();
     bindPostModal();
+    bindProfileModal();
     bindImageViewer();
 });
 
@@ -192,7 +193,7 @@ function renderList(list) {
         const authorLink = card.querySelector('.card-author');
         if (authorLink) authorLink.addEventListener('click', function (e) {
             e.stopPropagation();
-            alert('用户：' + this.getAttribute('data-author') + '\n（用户主页正在建设中）');
+            openProfile(this.getAttribute('data-author'));
         });
         wrap.appendChild(card);
     });
@@ -588,6 +589,9 @@ async function submitPost() {
 // ---------- 详情弹窗 ----------
 function bindDetailModal() {
     document.getElementById('detailClose').addEventListener('click', closeDetail);
+    document.querySelector('.detail-author').addEventListener('click', function () {
+        if (currentPost && currentPost.author) openProfile(currentPost.author);
+    });
     document.getElementById('detailImg').addEventListener('click', function (e) {
         if (e.target.tagName === 'IMG') openImageViewer(detailImages, detailImageIndex);
     });
@@ -836,6 +840,94 @@ function renderDetailImages() {
             e.stopPropagation();
             detailImageIndex = Number(this.getAttribute('data-i'));
             renderDetailImages();
+        });
+    });
+}
+
+let profileLockedBody = false;
+
+function bindProfileModal() {
+    const modal = document.getElementById('profileModal');
+    if (!modal) return;
+    document.getElementById('profileClose').addEventListener('click', closeProfile);
+    modal.addEventListener('click', function (e) {
+        if (e.target === this) closeProfile();
+    });
+}
+
+async function openProfile(username) {
+    const modal = document.getElementById('profileModal');
+    const body = document.getElementById('profileBody');
+    if (!modal || !body || !username) return;
+    if (modal.hidden) {
+        profileLockedBody = document.body.style.overflow !== 'hidden';
+        if (profileLockedBody) document.body.style.overflow = 'hidden';
+    }
+    modal.hidden = false;
+    body.innerHTML = '<div class="profile-empty">加载中...</div>';
+    try {
+        const res = await Auth.get('/api/users/' + encodeURIComponent(username));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderProfile(data);
+    } catch (e) {
+        body.innerHTML = '<div class="profile-empty">用户主页加载失败</div>';
+    }
+}
+
+function closeProfile() {
+    const modal = document.getElementById('profileModal');
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    if (profileLockedBody) {
+        document.body.style.overflow = '';
+        profileLockedBody = false;
+    }
+}
+
+function renderProfile(data) {
+    const body = document.getElementById('profileBody');
+    const u = data.user || {};
+    const posts = data.posts || [];
+    const initial = (u.username || '?').slice(0, 1);
+    let html = '<div class="profile-head">' +
+        '<div class="profile-avatar">' + escapeHtml(initial) + '</div>' +
+        '<div class="profile-head-info">' +
+            '<div class="profile-name">' + escapeHtml(u.username || '未知用户') +
+                (u.is_admin ? '<span class="profile-badge">管理员</span>' : '') + '</div>' +
+            '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' + (u.post_count || 0) +
+                ' 帖 · 加入于 ' + formatTime(u.created_at) + '</div>' +
+        '</div>' +
+    '</div>';
+    if (!posts.length) {
+        html += '<div class="profile-empty">还没有发过帖子</div>';
+    } else {
+        html += '<div class="profile-section-title">最近发帖</div><div class="profile-posts">';
+        posts.forEach(function (p) {
+            const cover = getPostImages(p)[0] || '';
+            html += '<div class="profile-post" data-id="' + p.id + '">' +
+                '<div class="profile-post-thumb">' +
+                    (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
+                           : '<svg class="icon" aria-hidden="true"><use href="#i-image"></use></svg>') +
+                '</div>' +
+                '<div class="profile-post-main">' +
+                    '<div class="profile-post-title">' + escapeHtml(p.title || '无标题') + '</div>' +
+                    '<div class="profile-post-meta">' +
+                        '<svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) +
+                        '<svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) +
+                        '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) +
+                        '<span class="profile-post-time">' + formatTime(p.created_at) + '</span>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+    }
+    body.innerHTML = html;
+    body.querySelectorAll('.profile-post').forEach(function (el) {
+        el.addEventListener('click', function () {
+            closeProfile();
+            openDetail(Number(this.getAttribute('data-id')));
         });
     });
 }

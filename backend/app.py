@@ -479,6 +479,40 @@ def get_post(post_id):
 
 
 
+@app.route("/api/users/<username>", methods=["GET"])
+def user_profile(username):
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, username, is_admin, created_at FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not user:
+            return jsonify({"error": "用户不存在"}), 404
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM posts WHERE author=?", (username,)
+        ).fetchone()["c"]
+        rows = conn.execute(
+            """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
+               FROM posts p WHERE p.author=? ORDER BY p.id DESC LIMIT 20""",
+            (username,),
+        ).fetchall()
+        level = _level_from_post_count(total)
+        return jsonify({
+            "user": {
+                "id": user["id"],
+                "username": user["username"],
+                "is_admin": user["is_admin"] or 0,
+                "level": level,
+                "post_count": total,
+                "created_at": _fmt_time(user["created_at"]),
+            },
+            "posts": [_row_to_dict(r, r["reply_count"]) for r in rows],
+        })
+    finally:
+        conn.close()
+
+
 @app.route("/api/posts/<int:post_id>", methods=["DELETE"])
 @login_required
 def delete_post(post_id):

@@ -92,6 +92,17 @@
         </div>
     </div>
 
+    <!-- 用户主页弹窗（2.6） -->
+    <div class="modal-mask" id="profileModal" hidden>
+        <div class="modal profile-modal">
+            <div class="modal-head">
+                <span>用户主页</span>
+                <button class="modal-close" id="profileClose">×</button>
+            </div>
+            <div class="modal-body" id="profileBody"></div>
+        </div>
+    </div>
+
     <!-- 发帖弹窗 -->
     <div class="modal-mask" id="postModal" hidden>
         <div class="post-dialog">
@@ -113,7 +124,7 @@
                     <textarea id="postContent" rows="5" placeholder="想说点什么..."></textarea>
                 </div>
                 <div class="post-form-group">
-                    <label id="imageLabel">图片（可选，最多 9 张，单张 ≤10MB）</label>
+                    <label id="imageLabel">图片（可选，单张 ≤10MB）</label>
                     <div class="upload-area" id="uploadArea">
                         <input type="file" id="postImage" accept="image/*" multiple hidden>
                         <div class="upload-placeholder" id="uploadPlaceholder">点击或拖拽上传图片（自动压缩）</div>
