@@ -772,9 +772,10 @@ def message_thread(username):
         rows = conn.execute(
             "SELECT id, sender, receiver, content, is_read, created_at FROM messages "
             "WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?) "
-            "ORDER BY id ASC LIMIT 200",
+            "ORDER BY id DESC LIMIT 200",
             (me, username, username, me),
         ).fetchall()
+        rows = list(reversed(rows))
         messages = [{
             "id": r["id"],
             "sender": r["sender"],
