@@ -16,6 +16,7 @@
         <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.9L12 3.5Z"/></symbol>
         <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9.5 9.5h5M9.5 14.5h5M12 8v8"/></symbol>
         <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m5 17 4.5-4.5 3 3L16 11.5l3 3"/></symbol>
+        <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
     </svg>
 
     <!-- 顶部导航 -->
@@ -31,6 +32,7 @@
             </div>
 
             <div class="topbar-actions" id="topbarActions">
+                <button class="bell-btn" id="msgBtn" title="私信"><svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg><span class="bell-dot" id="msgDot" hidden></span></button>
                 <button class="bell-btn" id="bellBtn" title="通知">
                     🔔
                     <span class="bell-dot" id="bellDot" hidden></span>
@@ -100,6 +102,21 @@
                 <button class="modal-close" id="profileClose">×</button>
             </div>
             <div class="modal-body" id="profileBody"></div>
+        </div>
+    </div>
+
+    <!-- 私信弹窗（2.7） -->
+    <div class="modal-mask" id="messageModal" hidden>
+        <div class="modal message-modal">
+            <div class="modal-head">
+                <span id="messageTitle">私信</span>
+                <button class="modal-close" id="messageClose">×</button>
+            </div>
+            <div class="modal-body message-body" id="messageBody"></div>
+            <div class="message-compose" id="messageCompose" hidden>
+                <input type="text" id="messageInput" maxlength="1000" placeholder="输入私信...">
+                <button class="btn-post" id="messageSend">发送</button>
+            </div>
         </div>
     </div>
 

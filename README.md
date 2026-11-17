@@ -55,6 +55,14 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 唯一真源：`backend/app.py` 的 `LEVEL_IMAGE_LIMITS` / `LEVEL_POST_THRESHOLDS`
 - `/api/config` 按当前登录用户返回 `level` 与 `max_post_images`
 
+## 私信
+
+- `messages` 表：sender / receiver / content / is_read / created_at
+- `GET /api/messages`：会话列表（含未读数）
+- `GET /api/messages/<username>`：与某人的最近 200 条，读取时把对方发来的标为已读
+- `POST /api/messages/<username>`：发送，最多 1000 字，同时给对方写一条通知
+- 只能看到自己参与的会话；不能给自己发
+
 ## 部署
 
 Render Web Service，`main` 分支 push 后自动构建部署：

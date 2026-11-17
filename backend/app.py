@@ -729,6 +729,107 @@ def read_notifs():
         conn.close()
 
 
+@app.route("/api/messages", methods=["GET"])
+@login_required
+def message_inbox():
+    me = request.current_user["username"]
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, sender, receiver, content, is_read, created_at FROM messages "
+            "WHERE sender=? OR receiver=? ORDER BY id DESC LIMIT 500",
+            (me, me),
+        ).fetchall()
+    finally:
+        conn.close()
+    conversations = {}
+    for r in rows:
+        peer = r["receiver"] if r["sender"] == me else r["sender"]
+        if peer not in conversations:
+            conversations[peer] = {
+                "peer": peer,
+                "last": r["content"],
+                "time": _fmt_time(r["created_at"]),
+                "unread": 0,
+            }
+        if r["sender"] == peer and not r["is_read"]:
+            conversations[peer]["unread"] += 1
+    data = list(conversations.values())
+    return jsonify({"conversations": data, "unread": sum(c["unread"] for c in data)})
+
+
+@app.route("/api/messages/<username>", methods=["GET"])
+@login_required
+def message_thread(username):
+    me = request.current_user["username"]
+    if username == me:
+        return jsonify({"error": "不能给自己发私信"}), 400
+    conn = get_db()
+    try:
+        peer = conn.execute("SELECT username FROM users WHERE username=?", (username,)).fetchone()
+        if not peer:
+            return jsonify({"error": "用户不存在"}), 404
+        rows = conn.execute(
+            "SELECT id, sender, receiver, content, is_read, created_at FROM messages "
+            "WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?) "
+            "ORDER BY id ASC LIMIT 200",
+            (me, username, username, me),
+        ).fetchall()
+        messages = [{
+            "id": r["id"],
+            "sender": r["sender"],
+            "receiver": r["receiver"],
+            "content": r["content"],
+            "created_at": _fmt_time(r["created_at"]),
+        } for r in rows]
+        conn.execute(
+            "UPDATE messages SET is_read=1 WHERE sender=? AND receiver=?",
+            (username, me),
+        )
+        conn.commit()
+        return jsonify({"peer": username, "messages": messages})
+    finally:
+        conn.close()
+
+
+@app.route("/api/messages/<username>", methods=["POST"])
+@login_required
+def send_message(username):
+    me = request.current_user["username"]
+    if username == me:
+        return jsonify({"error": "不能给自己发私信"}), 400
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "内容不能为空"}), 400
+    if len(content) > 1000:
+        return jsonify({"error": "私信最多 1000 字"}), 400
+    conn = get_db()
+    try:
+        peer = conn.execute("SELECT username FROM users WHERE username=?", (username,)).fetchone()
+        if not peer:
+            return jsonify({"error": "用户不存在"}), 404
+        conn.execute(
+            "INSERT INTO messages (sender, receiver, content) VALUES (?, ?, ?)",
+            (me, username, content),
+        )
+        new_id = conn.max_id("messages")
+        conn.execute(
+            "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
+            (username, "你收到一条私信", f"{me}：{content[:40]}"),
+        )
+        conn.commit()
+        return jsonify({
+            "id": new_id,
+            "sender": me,
+            "receiver": username,
+            "content": content,
+            "created_at": "刚刚",
+        }), 201
+    finally:
+        conn.close()
+
+
 @app.route("/api/tags", methods=["GET"])
 def list_tags():
     conn = get_db()
@@ -857,6 +958,16 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id SERIAL PRIMARY KEY,
+                    sender TEXT NOT NULL,
+                    receiver TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    is_read INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -866,6 +977,16 @@ def _migrate():
                     username TEXT NOT NULL,
                     title TEXT DEFAULT '',
                     text TEXT DEFAULT '',
+                    is_read INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender TEXT NOT NULL,
+                    receiver TEXT NOT NULL,
+                    content TEXT NOT NULL,
                     is_read INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -922,6 +1043,7 @@ def _migrate():
         for ddl in (
             "CREATE INDEX IF NOT EXISTS idx_users_token ON users(token)",
             "CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id)",
+            "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver, is_read)",
         ):
             try:
                 conn.execute(ddl)

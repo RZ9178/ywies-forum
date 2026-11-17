@@ -27,6 +27,8 @@ let detailImageIndex = 0;
 let viewerImages = [];
 let viewerIndex = 0;
 let viewerDownloadName = 'image.jpg';
+let currentChatUser = '';
+let messageLockedBody = false;
 
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
@@ -38,6 +40,7 @@ const K_AUTHOR = 'ywies_author';
 window.addEventListener('DOMContentLoaded', function () {
     initAuth();
     refreshBellDot();
+    refreshMsgDot();
     fetchConfig();
     fetchPosts();
     fetchTags();
@@ -47,6 +50,7 @@ window.addEventListener('DOMContentLoaded', function () {
     bindDetailModal();
     bindPostModal();
     bindProfileModal();
+    bindMessages();
     bindImageViewer();
 });
 
@@ -915,7 +919,10 @@ function renderProfile(data) {
         '<div class="profile-avatar">' + escapeHtml(initial) + '</div>' +
         '<div class="profile-head-info">' +
             '<div class="profile-name">' + escapeHtml(u.username || '未知用户') +
-                (u.is_admin ? '<span class="profile-badge">管理员</span>' : '') + '</div>' +
+                (u.is_admin ? '<span class="profile-badge">管理员</span>' : '') +
+                (u.username !== (Auth.user && Auth.user.username)
+                    ? '<button type="button" class="profile-msg" data-user="' + escapeHtml(u.username) + '">私信</button>'
+                    : '') + '</div>' +
             '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' + (u.post_count || 0) +
                 ' 帖 · 加入于 ' + formatTime(u.created_at) + '</div>' +
         '</div>' +
@@ -951,6 +958,192 @@ function renderProfile(data) {
             openDetail(Number(this.getAttribute('data-id')));
         });
     });
+    const pm = body.querySelector('.profile-msg');
+    if (pm) pm.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const peer = this.getAttribute('data-user');
+        closeProfile();
+        openMessageThread(peer);
+    });
+}
+
+function bindMessages() {
+    const modal = document.getElementById('messageModal');
+    if (!modal) return;
+    const closeBtn = document.getElementById('messageClose');
+    document.getElementById('msgBtn').addEventListener('click', function () {
+        openMessageInbox();
+    });
+    closeBtn.addEventListener('click', closeMessages);
+    modal.addEventListener('click', function (e) {
+        if (e.target === this) closeMessages();
+    });
+    document.getElementById('messageSend').addEventListener('click', sendMessage);
+    document.getElementById('messageInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); sendMessage(); }
+    });
+}
+
+function updateMsgDot(show) {
+    const dot = document.getElementById('msgDot');
+    if (dot) dot.hidden = !show;
+}
+
+async function refreshMsgDot() {
+    const dot = document.getElementById('msgDot');
+    if (!dot) return;
+    if (!Auth.isLoggedIn()) { dot.hidden = true; return; }
+    try {
+        const res = await Auth.get('/api/messages');
+        if (!res.ok) { dot.hidden = true; return; }
+        const data = await res.json();
+        dot.hidden = !(data.unread > 0);
+    } catch (e) {
+        dot.hidden = true;
+    }
+}
+
+async function openMessageInbox() {
+    if (!Auth.isLoggedIn()) {
+        alert('请先登录再查看私信');
+        window.location.href = 'login.html';
+        return;
+    }
+    const modal = document.getElementById('messageModal');
+    if (!modal) return;
+    if (modal.hidden) {
+        messageLockedBody = document.body.style.overflow !== 'hidden';
+        if (messageLockedBody) document.body.style.overflow = 'hidden';
+    }
+    modal.hidden = false;
+    currentChatUser = '';
+    document.getElementById('messageTitle').textContent = '私信';
+    document.getElementById('messageCompose').hidden = true;
+    const body = document.getElementById('messageBody');
+    body.innerHTML = '<div class="message-empty">加载中...</div>';
+    try {
+        const res = await Auth.get('/api/messages');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderInbox(data);
+        updateMsgDot((data.unread || 0) > 0);
+    } catch (e) {
+        body.innerHTML = '<div class="message-empty">私信加载失败</div>';
+    }
+}
+
+function renderInbox(data) {
+    const body = document.getElementById('messageBody');
+    const list = data.conversations || [];
+    if (!list.length) {
+        body.innerHTML = '<div class="message-empty">还没有私信。点开别人的主页，发第一条吧。</div>';
+        return;
+    }
+    body.innerHTML = list.map(function (c) {
+        const initial = (c.peer || '?').slice(0, 1);
+        return '<button type="button" class="conv-item" data-peer="' + escapeHtml(c.peer) + '">' +
+            '<span class="conv-avatar">' + escapeHtml(initial) + '</span>' +
+            '<span class="conv-main">' +
+                '<span class="conv-name">' + escapeHtml(c.peer) +
+                    (c.unread > 0 ? '<span class="conv-unread">' + c.unread + '</span>' : '') + '</span>' +
+                '<span class="conv-last">' + escapeHtml(c.last || '') + '</span>' +
+            '</span>' +
+            '<span class="conv-time">' + formatTime(c.time) + '</span>' +
+        '</button>';
+    }).join('');
+    body.querySelectorAll('.conv-item').forEach(function (el) {
+        el.addEventListener('click', function () {
+            openMessageThread(this.getAttribute('data-peer'));
+        });
+    });
+}
+
+async function openMessageThread(username) {
+    if (!Auth.isLoggedIn()) {
+        alert('请先登录再查看私信');
+        window.location.href = 'login.html';
+        return;
+    }
+    if (!username) return;
+    const modal = document.getElementById('messageModal');
+    if (!modal) return;
+    if (modal.hidden) {
+        messageLockedBody = document.body.style.overflow !== 'hidden';
+        if (messageLockedBody) document.body.style.overflow = 'hidden';
+    }
+    modal.hidden = false;
+    currentChatUser = username;
+    document.getElementById('messageTitle').textContent = '与 ' + username + ' 的私信';
+    const body = document.getElementById('messageBody');
+    body.innerHTML = '<div class="message-empty">加载中...</div>';
+    try {
+        const res = await Auth.get('/api/messages/' + encodeURIComponent(username));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderThread(data);
+        document.getElementById('messageCompose').hidden = false;
+        refreshMsgDot();
+    } catch (e) {
+        body.innerHTML = '<div class="message-empty">私信加载失败</div>';
+        document.getElementById('messageCompose').hidden = true;
+    }
+}
+
+function renderThread(data) {
+    const body = document.getElementById('messageBody');
+    const msgs = data.messages || [];
+    let html = '<button type="button" class="msg-back" id="msgBack">‹ 返回私信列表</button>';
+    if (!msgs.length) {
+        html += '<div class="message-empty">还没有消息，打个招呼吧。</div>';
+    } else {
+        html += '<div class="msg-thread">' + msgs.map(function (m) {
+            const mine = Auth.user && m.sender === Auth.user.username;
+            return '<div class="msg-row ' + (mine ? 'me' : 'peer') + '">' +
+                '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' +
+                '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
+            '</div>';
+        }).join('') + '</div>';
+    }
+    body.innerHTML = html;
+    const back = document.getElementById('msgBack');
+    if (back) back.addEventListener('click', openMessageInbox);
+    body.scrollTop = body.scrollHeight;
+}
+
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const btn = document.getElementById('messageSend');
+    if (!input || !btn || !currentChatUser) return;
+    const text = input.value.trim();
+    if (!text) return;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+        const res = await Auth.post('/api/messages/' + encodeURIComponent(currentChatUser), { content: text });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || '发送失败');
+        }
+        input.value = '';
+        await openMessageThread(currentChatUser);
+    } catch (e) {
+        alert('发送失败：' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function closeMessages() {
+    const modal = document.getElementById('messageModal');
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    currentChatUser = '';
+    const compose = document.getElementById('messageCompose');
+    if (compose) compose.hidden = true;
+    if (messageLockedBody) {
+        document.body.style.overflow = '';
+        messageLockedBody = false;
+    }
 }
 
 function bindImageViewer() {

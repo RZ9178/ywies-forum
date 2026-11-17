@@ -1,6 +1,7 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS notifs;
 DROP TABLE IF EXISTS comments;
 DROP TABLE IF EXISTS posts;
@@ -45,5 +46,14 @@ CREATE TABLE notifs (
     title       TEXT NOT NULL DEFAULT '',
     text        TEXT NOT NULL DEFAULT '',
     is_read     INTEGER NOT NULL DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender      TEXT NOT NULL,
+    receiver    TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    is_read     INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
