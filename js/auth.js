@@ -33,4 +33,17 @@ const Auth = {
     async get(url) { return this.fetch(url, { method: 'GET' }); },
     async post(url, body) { return this.fetch(url, { method: 'POST', body: JSON.stringify(body || {}) }); },
     async del(url) { return this.fetch(url, { method: 'DELETE' }); },
+
+    // 文件上传：不设置 Content-Type，让浏览器自动带 multipart boundary
+    async upload(url, formData) {
+        const headers = {};
+        if (this.token) headers['Authorization'] = 'Bearer ' + this.token;
+        const res = await fetch(url, { method: 'POST', headers: headers, body: formData });
+        if (res.status === 401) {
+            this.logout();
+            window.location.href = 'login.html';
+            throw new Error('未登录');
+        }
+        return res;
+    },
 };

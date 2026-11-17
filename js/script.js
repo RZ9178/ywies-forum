@@ -14,7 +14,18 @@ let currentPost = null;
 let allComments = [];
 let commentSort = 'earliest';
 let selectedTags = [];
-let uploadedImage = '';
+let uploadedImages = [];
+let maxPostImages = 9;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_MAX_EDGE = 1600;
+const IMAGE_KEEP_BYTES = 600 * 1024;
+const IMAGE_TARGET_BYTES = 1.5 * 1024 * 1024;
+let imageProcessing = false;
+let imageTaskId = 0;
+let detailImages = [];
+let detailImageIndex = 0;
+let viewerImages = [];
+let viewerIndex = 0;
 
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
@@ -26,6 +37,7 @@ const K_AUTHOR = 'ywies_author';
 window.addEventListener('DOMContentLoaded', function () {
     initAuth();
     refreshBellDot();
+    fetchConfig();
     fetchPosts();
     fetchTags();
     bindTabs();
@@ -33,6 +45,7 @@ window.addEventListener('DOMContentLoaded', function () {
     bindBell();
     bindDetailModal();
     bindPostModal();
+    bindImageViewer();
 });
 
 function initAuth() {
@@ -260,10 +273,11 @@ function bindPostModal() {
     uploadArea.addEventListener('dragover', function (e) { e.preventDefault(); });
     uploadArea.addEventListener('drop', function (e) {
         e.preventDefault();
-        if (e.dataTransfer.files.length) handleImageFile(e.dataTransfer.files[0]);
+        if (e.dataTransfer.files.length) handleImageFiles(e.dataTransfer.files);
     });
     fileInput.addEventListener('change', function () {
-        if (this.files.length) handleImageFile(this.files[0]);
+        if (this.files.length) handleImageFiles(this.files);
+        this.value = '';
     });
 
     document.getElementById('newTagInput').addEventListener('keydown', function (e) {
@@ -293,8 +307,11 @@ function openPostModal() {
     document.getElementById('postImage').value = '';
     document.getElementById('newTagInput').value = '';
     selectedTags = [];
-    uploadedImage = '';
-    document.getElementById('imagePreview').hidden = true;
+    imageTaskId++;
+    imageProcessing = false;
+    uploadedImages = [];
+    renderImagePreviews();
+    setUploadHint('');
     document.getElementById('uploadPlaceholder').style.display = '';
     renderTagPicker();
     document.getElementById('postModal').hidden = false;
@@ -306,18 +323,181 @@ function closePostModal() {
     document.body.style.overflow = '';
 }
 
-function handleImageFile(file) {
-    if (!file.type.startsWith('image/')) { alert('请上传图片文件'); return; }
-    if (file.size > 2 * 1024 * 1024) { alert('图片太大，请压缩到 2MB 以内'); return; }
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        uploadedImage = e.target.result;
-        const preview = document.getElementById('imagePreview');
-        preview.src = uploadedImage;
-        preview.hidden = false;
-        document.getElementById('uploadPlaceholder').style.display = 'none';
-    };
-    reader.readAsDataURL(file);
+async function handleImageFiles(fileList) {
+    const files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    const room = maxPostImages - uploadedImages.length;
+    if (room <= 0) {
+        alert('最多上传 ' + maxPostImages + ' 张图片');
+        return;
+    }
+    if (files.length > room) {
+        alert('最多上传 ' + maxPostImages + ' 张，已忽略多出的 ' + (files.length - room) + ' 张');
+    }
+    const todo = files.slice(0, room);
+    const taskId = imageTaskId;
+    imageProcessing = true;
+    for (let i = 0; i < todo.length; i++) {
+        if (taskId !== imageTaskId) break;
+        const file = todo[i];
+        if (!file.type || !file.type.startsWith('image/')) { alert('请上传图片文件'); continue; }
+        if (file.size > MAX_IMAGE_BYTES) { alert('图片不能超过 10MB：' + (file.name || '')); continue; }
+        setUploadHint('正在处理第 ' + (i + 1) + ' / ' + todo.length + ' 张...');
+        try {
+            const blob = await prepareImageBlob(file);
+            if (taskId !== imageTaskId) break;
+            setUploadHint('正在上传第 ' + (i + 1) + ' / ' + todo.length + ' 张...');
+            const url = await uploadImageBlob(blob, file.name);
+            if (taskId !== imageTaskId) break;
+            uploadedImages.push(url);
+            renderImagePreviews();
+        } catch (e) {
+            if (taskId !== imageTaskId) break;
+            alert('图片上传失败：' + e.message);
+        }
+    }
+    if (taskId === imageTaskId) {
+        imageProcessing = false;
+        setUploadHint(uploadedImages.length ? ('已上传 ' + uploadedImages.length + ' / ' + maxPostImages + ' 张') : '');
+    }
+}
+
+function prepareImageBlob(file) {
+    return new Promise(function (resolve, reject) {
+        const reader = new FileReader();
+        reader.onerror = function () { reject(new Error('读取图片失败')); };
+        reader.onload = function (e) {
+            loadImage(e.target.result).then(function (img) {
+                const w0 = img.naturalWidth || 0;
+                const h0 = img.naturalHeight || 0;
+                const edge = Math.max(w0, h0);
+                // 取不到尺寸（极少数 SVG 等）或本身够小：直接上传原文件
+                if (!edge || (file.size <= IMAGE_KEEP_BYTES && edge <= IMAGE_MAX_EDGE)) {
+                    resolve(file);
+                    return;
+                }
+                compressImage(img).then(resolve).catch(reject);
+            }).catch(function () { reject(new Error('图片读取失败')); });
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function compressImage(img) {
+    const attempts = [
+        { edge: 1600, quality: 0.82 },
+        { edge: 1600, quality: 0.72 },
+        { edge: 1600, quality: 0.62 },
+        { edge: 1280, quality: 0.7 }
+    ];
+    let i = 0;
+    let last = null;
+    function step() {
+        if (i >= attempts.length) return Promise.resolve(last);
+        const a = attempts[i++];
+        return canvasToBlob(img, a.edge, a.quality).then(function (blob) {
+            if (!blob) throw new Error('浏览器不支持图片压缩');
+            last = blob;
+            if (blob.size <= IMAGE_TARGET_BYTES) return blob;
+            return step();
+        });
+    }
+    return step().then(function (blob) {
+        if (!blob) throw new Error('图片压缩失败');
+        return blob;
+    });
+}
+
+function canvasToBlob(img, maxEdge, quality) {
+    return new Promise(function (resolve) {
+        const w0 = img.naturalWidth || img.width;
+        const h0 = img.naturalHeight || img.height;
+        const scale = Math.min(1, maxEdge / Math.max(w0, h0));
+        const w = Math.max(1, Math.round(w0 * scale));
+        const h = Math.max(1, Math.round(h0 * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        // 透明 PNG 转 JPEG 时铺白底，避免透明区域变黑
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        if (canvas.toBlob) canvas.toBlob(resolve, 'image/jpeg', quality);
+        else resolve(null);
+    });
+}
+
+function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+        const img = new Image();
+        img.onload = function () { resolve(img); };
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+async function uploadImageBlob(blob, originalName) {
+    let ext = 'jpg';
+    if (blob.type === 'image/png') ext = 'png';
+    else if (blob.type === 'image/webp') ext = 'webp';
+    else if (blob.type === 'image/gif') ext = 'gif';
+    const base = (originalName || 'image').replace(/\.[^.]+$/, '') || 'image';
+    const fd = new FormData();
+    fd.append('file', blob, base + '.' + ext);
+    const res = await Auth.upload('/api/upload', fd);
+    if (!res.ok) {
+        let msg = '上传失败';
+        try {
+            const data = await res.json();
+            msg = data.error || msg;
+        } catch (e) {}
+        throw new Error(msg);
+    }
+    const data = await res.json();
+    if (!data.url) throw new Error('上传失败');
+    return data.url;
+}
+
+function renderImagePreviews() {
+    const wrap = document.getElementById('imagePreviewList');
+    if (!wrap) return;
+    wrap.innerHTML = uploadedImages.map(function (u, i) {
+        return '<div class="image-preview-item">' +
+            '<img src="' + escapeHtml(u) + '" alt="图片 ' + (i + 1) + '">' +
+            '<button type="button" class="image-remove" data-i="' + i + '" title="移除">×</button>' +
+        '</div>';
+    }).join('');
+    wrap.querySelectorAll('.image-remove').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            uploadedImages.splice(Number(this.getAttribute('data-i')), 1);
+            renderImagePreviews();
+            setUploadHint(uploadedImages.length ? ('已上传 ' + uploadedImages.length + ' / ' + maxPostImages + ' 张') : '');
+        });
+    });
+}
+
+function setUploadHint(text) {
+    const el = document.getElementById('uploadHint');
+    if (el) el.textContent = text || '';
+}
+
+async function fetchConfig() {
+    try {
+        const res = await fetch('/api/config');
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (cfg && cfg.max_post_images) {
+            maxPostImages = cfg.max_post_images;
+            const label = document.getElementById('imageLabel');
+            if (label) label.textContent = '图片（可选，最多 ' + maxPostImages + ' 张，单张 ≤10MB）';
+        }
+        const ph = document.getElementById('uploadPlaceholder');
+        if (ph && cfg && cfg.upload_enabled === false) {
+            ph.textContent = '图片上传暂未配置，可先发纯文字';
+        }
+    } catch (e) {}
 }
 
 function renderTagPicker() {
@@ -352,6 +532,7 @@ async function submitPost() {
     const content = document.getElementById('postContent').value.trim();
     if (!title) { alert('请输入标题'); return; }
     if (!content) { alert('请输入内容'); return; }
+    if (imageProcessing) { alert('图片还在上传，请稍候'); return; }
 
     const btn = document.getElementById('submitPostBtn');
     btn.disabled = true;
@@ -360,7 +541,7 @@ async function submitPost() {
     try {
         const res = await Auth.post(API, {
             title: title, content: content,
-            tags: selectedTags.join(','), image: uploadedImage
+            tags: selectedTags.join(','), images: uploadedImages
         });
         if (!res.ok) {
             const err = await res.json();
@@ -380,6 +561,9 @@ async function submitPost() {
 // ---------- 详情弹窗 ----------
 function bindDetailModal() {
     document.getElementById('detailClose').addEventListener('click', closeDetail);
+    document.getElementById('detailImg').addEventListener('click', function (e) {
+        if (e.target.tagName === 'IMG') openImageViewer(detailImages, detailImageIndex);
+    });
     document.getElementById('detailModal').addEventListener('click', function (e) {
         if (e.target === this) closeDetail();
     });
@@ -480,6 +664,7 @@ async function openDetail(postId) {
 }
 
 function closeDetail() {
+    closeImageViewer();
     document.getElementById('detailModal').hidden = true;
     document.body.style.overflow = '';
     currentPost = null;
@@ -489,9 +674,9 @@ function closeDetail() {
 
 function renderDetail() {
     const p = currentPost;
-    const imgEl = document.getElementById('detailImg');
-    if (p.image) imgEl.innerHTML = '<img src="' + escapeHtml(p.image) + '">';
-    else imgEl.innerHTML = '';
+    detailImages = getPostImages(p);
+    detailImageIndex = 0;
+    renderDetailImages();
     document.getElementById('detailAuthorName').textContent = p.author || '匿名';
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || '无标题';
@@ -589,6 +774,138 @@ async function submitComment() {
         document.getElementById('commentCount').textContent = allComments.length;
         renderComments();
     } catch (e) { alert('评论失败：' + e.message); }
+}
+
+function getPostImages(post) {
+    if (post && Array.isArray(post.images) && post.images.length) return post.images.slice();
+    if (post && post.image) return [post.image];
+    return [];
+}
+
+function renderDetailImages() {
+    const box = document.getElementById('detailImg');
+    const thumbs = document.getElementById('detailThumbs');
+    if (!detailImages.length) {
+        box.innerHTML = '';
+        if (thumbs) { thumbs.hidden = true; thumbs.innerHTML = ''; }
+        return;
+    }
+    if (detailImageIndex >= detailImages.length) detailImageIndex = 0;
+    box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="帖子图片">';
+    if (!thumbs) return;
+    if (detailImages.length <= 1) {
+        thumbs.hidden = true;
+        thumbs.innerHTML = '';
+        return;
+    }
+    thumbs.hidden = false;
+    thumbs.innerHTML = detailImages.map(function (u, i) {
+        return '<button type="button" class="detail-thumb' + (i === detailImageIndex ? ' active' : '') +
+            '" data-i="' + i + '" title="第 ' + (i + 1) + ' 张">' +
+            '<img src="' + escapeHtml(u) + '" alt=""></button>';
+    }).join('');
+    thumbs.querySelectorAll('.detail-thumb').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            detailImageIndex = Number(this.getAttribute('data-i'));
+            renderDetailImages();
+        });
+    });
+}
+
+function bindImageViewer() {
+    const viewer = document.getElementById('imageViewer');
+    if (!viewer) return;
+    document.getElementById('imageViewerClose').addEventListener('click', closeImageViewer);
+    document.getElementById('imageViewerPrev').addEventListener('click', function (e) {
+        e.stopPropagation();
+        viewerStep(-1);
+    });
+    document.getElementById('imageViewerNext').addEventListener('click', function (e) {
+        e.stopPropagation();
+        viewerStep(1);
+    });
+    document.getElementById('imageViewerDownload').addEventListener('click', function (e) {
+        e.stopPropagation();
+    });
+    viewer.addEventListener('click', function (e) {
+        if (e.target === viewer || e.target.id === 'imageViewerImg') closeImageViewer();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (viewer.hidden) return;
+        if (e.key === 'Escape') closeImageViewer();
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); viewerStep(-1); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); viewerStep(1); }
+    });
+}
+
+function openImageViewer(images, index) {
+    const viewer = document.getElementById('imageViewer');
+    if (!viewer) return;
+    const imgs = (images && images.length) ? images : getPostImages(currentPost);
+    if (!imgs.length) return;
+    viewerImages = imgs.slice();
+    viewerIndex = Math.max(0, Math.min(index || 0, viewerImages.length - 1));
+    viewer.hidden = false;
+    renderViewerImage();
+}
+
+function viewerStep(delta) {
+    if (viewerImages.length <= 1) return;
+    viewerIndex = (viewerIndex + delta + viewerImages.length) % viewerImages.length;
+    renderViewerImage();
+}
+
+function renderViewerImage() {
+    const src = viewerImages[viewerIndex];
+    if (!src) { closeImageViewer(); return; }
+    const img = document.getElementById('imageViewerImg');
+    const count = document.getElementById('imageViewerCount');
+    const prev = document.getElementById('imageViewerPrev');
+    const next = document.getElementById('imageViewerNext');
+    if (!img || !count || !prev || !next) return;
+    img.src = src;
+    img.alt = (currentPost && currentPost.title) ? currentPost.title : '帖子图片';
+    count.textContent = viewerImages.length > 1 ? (viewerIndex + 1) + ' / ' + viewerImages.length : '';
+    prev.hidden = viewerImages.length <= 1;
+    next.hidden = viewerImages.length <= 1;
+
+    const link = document.getElementById('imageViewerDownload');
+    const m = /^data:image\/([a-zA-Z0-9.+-]+)/i.exec(src);
+    let ext = m ? m[1].toLowerCase() : 'jpg';
+    if (!m) {
+        const pathMatch = /\.([a-zA-Z0-9]+)$/.exec(src.split('?')[0]);
+        if (pathMatch) ext = pathMatch[1].toLowerCase();
+    }
+    if (ext === 'jpeg') ext = 'jpg';
+    const base = ((currentPost && currentPost.title) || 'image')
+        .replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 40) || 'image';
+    const suffix = viewerImages.length > 1 ? '-' + (viewerIndex + 1) : '';
+    const name = base + suffix + '.' + ext;
+
+    if (src.slice(0, 5).toLowerCase() === 'data:') {
+        link.setAttribute('href', src);
+        link.setAttribute('download', name);
+        link.removeAttribute('target');
+    } else if (src.indexOf('/storage/v1/object/public/') !== -1) {
+        // Supabase 公开 URL 加 ?download 强制附件下载
+        link.setAttribute('href', src + (src.indexOf('?') === -1 ? '?' : '&') + 'download=' + encodeURIComponent(name));
+        link.setAttribute('download', name);
+        link.removeAttribute('target');
+    } else {
+        // 其他外链：跨域 download 会被忽略，回退新标签打开
+        link.setAttribute('href', src);
+        link.setAttribute('download', name);
+        link.setAttribute('target', '_blank');
+    }
+}
+
+function closeImageViewer() {
+    const viewer = document.getElementById('imageViewer');
+    if (!viewer || viewer.hidden) return;
+    viewer.hidden = true;
+    document.getElementById('imageViewerImg').src = '';
+    document.getElementById('imageViewerDownload').removeAttribute('href');
 }
 
 function updateFooterButtons() {

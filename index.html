@@ -103,12 +103,13 @@
                     <textarea id="postContent" rows="5" placeholder="想说点什么..."></textarea>
                 </div>
                 <div class="post-form-group">
-                    <label>图片（可选）</label>
+                    <label id="imageLabel">图片（可选，最多 9 张，单张 ≤10MB）</label>
                     <div class="upload-area" id="uploadArea">
-                        <input type="file" id="postImage" accept="image/*" hidden>
-                        <div class="upload-placeholder" id="uploadPlaceholder">点击或拖拽上传图片</div>
-                        <img id="imagePreview" class="image-preview" hidden>
+                        <input type="file" id="postImage" accept="image/*" multiple hidden>
+                        <div class="upload-placeholder" id="uploadPlaceholder">点击或拖拽上传图片（自动压缩）</div>
                     </div>
+                    <div class="upload-hint" id="uploadHint"></div>
+                    <div class="image-preview-list" id="imagePreviewList"></div>
                 </div>
                 <div class="post-form-group">
                     <label>标签</label>
@@ -130,6 +131,7 @@
             <div class="detail-grid">
                 <div class="detail-img-col">
                     <div class="detail-img" id="detailImg"></div>
+                    <div class="detail-thumbs" id="detailThumbs" hidden></div>
                 </div>
 
                 <div class="detail-main-col">
@@ -167,6 +169,16 @@
                 <button class="footer-btn" id="footerStar" title="收藏">☆ <span id="footerStarCount">0</span></button>
             </div>
         </div>
+    </div>
+
+    <!-- 图片查看器（点击详情图放大 / 轮播 / 下载） -->
+    <div class="detail-mask image-viewer" id="imageViewer" hidden>
+        <button type="button" class="detail-close" id="imageViewerClose" title="关闭">✕</button>
+        <button type="button" class="image-viewer-nav prev" id="imageViewerPrev" title="上一张">‹</button>
+        <img class="image-viewer-img" id="imageViewerImg" alt="帖子图片">
+        <button type="button" class="image-viewer-nav next" id="imageViewerNext" title="下一张">›</button>
+        <div class="image-viewer-count" id="imageViewerCount"></div>
+        <a class="image-viewer-download" id="imageViewerDownload">下载图片</a>
     </div>
 
     <!-- AI 聊天窗口 - 耀耀 -->

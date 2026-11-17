@@ -14,16 +14,19 @@
 #   GET  /api/tags                 -> 所有标签
 #   GET  /api/admin/stats          -> 注册用户数等统计（管理员）
 
+import json
 import os
 import re
 import sqlite3
 from datetime import datetime, timezone
 import secrets
 import time
+import uuid
 from functools import wraps
 
 import psycopg2
 import psycopg2.extras
+import requests
 from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -37,6 +40,15 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..")
 # 环境变量里的连接串容易被粘贴带入换行 / 空格 / 引号，导致 PG 报
 # database "postgres\n" does not exist；这里统一清洗，双端都安全。
 DATABASE_URL = "".join((os.getenv("DATABASE_URL") or "").split()).strip('"').strip("'") or None
+
+# 图片存储（Supabase Storage）。密钥只从环境变量读，绝不写进代码或日志。
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().strip('"').strip("'").rstrip("/")
+SUPABASE_KEY = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip().strip('"').strip("'")
+SUPABASE_BUCKET = (os.getenv("SUPABASE_BUCKET") or "").strip().strip('"').strip("'")
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_POST_IMAGES = 9
+
+app.config["MAX_CONTENT_LENGTH"] = MAX_IMAGE_BYTES + 2 * 1024 * 1024
 
 _CODE_STORE = {}
 CODE_TTL = 300
@@ -104,6 +116,20 @@ def add_cors_headers(resp):
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     return resp
+
+
+@app.errorhandler(413)
+def payload_too_large(e):
+    return jsonify({"error": "图片太大（单张上限 10MB）"}), 413
+
+
+@app.route("/api/config", methods=["GET"])
+def app_config():
+    return jsonify({
+        "max_post_images": MAX_POST_IMAGES,
+        "max_image_mb": MAX_IMAGE_BYTES // (1024 * 1024),
+        "upload_enabled": bool(SUPABASE_URL and SUPABASE_KEY and SUPABASE_BUCKET),
+    })
 
 
 def _get_current_user():
@@ -290,17 +316,39 @@ def _fmt_time(value):
     return text
 
 
+def _parse_images(raw):
+    """posts.images 存的是 JSON 数组字符串；老帖没这一列/为空时返回 []。"""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [u for u in value if isinstance(u, str) and u.strip()]
+
+
 def _row_to_dict(row, reply_count=None):
+    keys = row.keys()
+    images = _parse_images(row["images"]) if "images" in keys else []
+    cover = row["image_url"] or ""
+    if not images and cover:
+        # 兼容 2.2 之前只存了单张 image_url 的老帖
+        images = [cover]
+    if images:
+        cover = images[0]
     return {
         "id": row["id"],
         "title": row["title"],
         "content": row["content"],
         "author": row["author"],
         "tags": row["tags"] or "",
-        "image": row["image_url"] or "",
+        "image": cover,
+        "images": images,
         "views": row["views"],
-        "likes": row["likes"] if "likes" in row.keys() else 0,
-        "coins": row["coins"] if "coins" in row.keys() else 0,
+        "likes": row["likes"] if "likes" in keys else 0,
+        "coins": row["coins"] if "coins" in keys else 0,
         "replies": reply_count if reply_count is not None else 0,
         "created_at": _fmt_time(row["created_at"]),
     }
@@ -327,18 +375,45 @@ def create_post():
     content = (data.get("content") or "").strip()
     author = request.current_user["username"]
     tags = (data.get("tags") or "").strip()
-    image = (data.get("image") or "").strip()
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
     if not content:
         return jsonify({"error": "内容不能为空"}), 400
-    if image and len(image) > 2 * 1024 * 1024 * 1.4:
-        return jsonify({"error": "图片太大"}), 400
+
+    # 新前端传 images（Storage 公开 URL 数组）；老前端只传 image（单张 base64）
+    images = []
+    raw_images = data.get("images")
+    if isinstance(raw_images, list):
+        for url in raw_images:
+            if not isinstance(url, str):
+                continue
+            url = url.strip()
+            if not url:
+                continue
+            if not (url.startswith("https://") or url.startswith("http://")):
+                return jsonify({"error": "图片地址不合法"}), 400
+            if len(url) > 2048:
+                return jsonify({"error": "图片地址太长"}), 400
+            if url not in images:
+                images.append(url)
+    legacy = (data.get("image") or "").strip()
+    legacy_single = False
+    if not images and legacy:
+        # 兼容旧缓存页面：仍接受单张 base64，但沿用旧上限，不写进 images 数组
+        if len(legacy) > 2 * 1024 * 1024 * 1.4:
+            return jsonify({"error": "图片太大"}), 400
+        images = [legacy]
+        legacy_single = True
+    if len(images) > MAX_POST_IMAGES:
+        return jsonify({"error": f"最多上传 {MAX_POST_IMAGES} 张图片"}), 400
+
+    cover = images[0] if images else ""
+    images_json = "" if (not images or legacy_single) else json.dumps(images, ensure_ascii=False)
     conn = get_db()
     try:
         conn.execute(
-            "INSERT INTO posts (title, content, author, tags, image_url) VALUES (?, ?, ?, ?, ?)",
-            (title, content, author, tags, image),
+            "INSERT INTO posts (title, content, author, tags, image_url, images) VALUES (?, ?, ?, ?, ?, ?)",
+            (title, content, author, tags, cover, images_json),
         )
         conn.commit()
         new_id = conn.max_id("posts")
@@ -439,6 +514,54 @@ def toggle_coin(post_id):
         return jsonify({"coins": row["coins"]})
     finally:
         conn.close()
+
+
+_IMAGE_MIME_EXT = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
+
+@app.route("/api/upload", methods=["POST"])
+@login_required
+def upload_image():
+    if not (SUPABASE_URL and SUPABASE_KEY and SUPABASE_BUCKET):
+        return jsonify({"error": "图片上传未配置"}), 503
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "没有收到图片"}), 400
+    mime = (f.mimetype or "").lower()
+    ext = _IMAGE_MIME_EXT.get(mime)
+    if not ext:
+        return jsonify({"error": "只支持 JPG / PNG / WebP / GIF"}), 400
+    blob = f.read(MAX_IMAGE_BYTES + 1)
+    if not blob:
+        return jsonify({"error": "图片为空"}), 400
+    if len(blob) > MAX_IMAGE_BYTES:
+        return jsonify({"error": "图片太大（单张上限 10MB）"}), 400
+
+    uid = request.current_user["id"]
+    path = f"posts/{uid}/{uuid.uuid4().hex}.{ext}"
+    endpoint = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
+    headers = {
+        "Authorization": "Bearer " + SUPABASE_KEY,
+        "apikey": SUPABASE_KEY,
+        "Content-Type": mime,
+        "x-upsert": "false",
+    }
+    try:
+        resp = requests.post(endpoint, headers=headers, data=blob, timeout=30)
+    except Exception as e:
+        # 只记录异常类型，绝不回显连接串或密钥
+        print(f"[上传] 请求 Storage 失败：{type(e).__name__}")
+        return jsonify({"error": "图片上传失败，请稍后重试"}), 502
+    if resp.status_code not in (200, 201):
+        print(f"[上传] Storage 返回 {resp.status_code}: {resp.text[:200]}")
+        return jsonify({"error": f"图片上传失败（Storage {resp.status_code}）"}), 502
+    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
+    return jsonify({"url": public_url}), 201
 
 
 @app.route("/api/posts/<int:post_id>/comments", methods=["GET"])
@@ -638,6 +761,7 @@ def _migrate():
                     content TEXT DEFAULT '',
                     author TEXT NOT NULL,
                     image_url TEXT DEFAULT '',
+                    images TEXT DEFAULT '',
                     tags TEXT DEFAULT '',
                     likes INTEGER DEFAULT 0,
                     coins INTEGER DEFAULT 0,
@@ -681,10 +805,10 @@ def _migrate():
             conn.commit()
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
-        text_cols = {"tags", "email", "token", "image_url"}
+        text_cols = {"tags", "email", "token", "image_url", "images"}
         col_sets = {}
         for table, cols in [
-            ("posts", ["tags", "likes", "coins", "image_url"]),
+            ("posts", ["tags", "likes", "coins", "image_url", "images"]),
             ("comments", ["likes"]),
             ("users", ["email", "is_admin", "token", "token_expires"]),
         ]:

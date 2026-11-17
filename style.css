@@ -721,12 +721,50 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .upload-area:hover { border-color: var(--accent); }
 .upload-placeholder { color: var(--text-dim); font-size: 13px; }
-.image-preview {
-    max-width: 100%;
-    max-height: 240px;
-    border-radius: 8px;
+.upload-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    min-height: 16px;
+}
+.image-preview-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 8px;
 }
+.image-preview-list:empty { display: none; }
+.image-preview-item {
+    position: relative;
+    width: 84px;
+    height: 84px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+}
+.image-preview-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.image-remove {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--on-danger);
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.image-remove:hover { background: var(--danger); }
 
 .tag-picker {
     display: flex;
@@ -941,3 +979,104 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .comment-del:hover { border-color: var(--danger); color: var(--danger); }
 
+/* ============================================
+   图片查看器 / 多图缩略图（2.2）
+   ============================================ */
+.detail-img-col {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+.detail-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.detail-thumbs[hidden] { display: none; }
+.detail-thumb {
+    width: 46px;
+    height: 46px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    padding: 0;
+    background: var(--bg-elev);
+    flex-shrink: 0;
+}
+.detail-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.detail-thumb.active { border-color: var(--accent); }
+.detail-img img { cursor: zoom-in; }
+
+/* 复用 .detail-mask 的遮罩与居中，这里只调层级/内边距 */
+.image-viewer {
+    z-index: 400;
+    padding: 24px 24px 84px;
+    cursor: zoom-out;
+}
+.image-viewer-img {
+    max-width: 94vw;
+    max-height: calc(100vh - 140px);
+    object-fit: contain;
+    border-radius: 6px;
+    cursor: zoom-out;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.image-viewer-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 42px;
+    height: 56px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.38);
+    color: var(--on-danger);
+    font-size: 30px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 401;
+}
+.image-viewer-nav:hover { background: rgba(0, 0, 0, 0.55); }
+.image-viewer-nav[hidden] { display: none; }
+.image-viewer-nav.prev { left: 14px; }
+.image-viewer-nav.next { right: 14px; }
+.image-viewer-count {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--on-danger);
+    font-size: 13px;
+    z-index: 401;
+}
+.image-viewer-count:empty { display: none; }
+.image-viewer-download {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    background: var(--accent);
+    color: var(--accent-ink);
+    padding: 9px 22px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    z-index: 401;
+}
+.image-viewer-download:hover { background: var(--accent-hover); }
+@media (max-width: 768px) {
+    .image-viewer { padding: 16px 10px 76px; }
+    .image-viewer-img { max-width: 100%; max-height: calc(100vh - 120px); }
+    .image-viewer-nav { width: 36px; height: 48px; font-size: 26px; }
+    .image-viewer-nav.prev { left: 6px; }
+    .image-viewer-nav.next { right: 6px; }
+    .image-preview-item { width: 72px; height: 72px; }
+}

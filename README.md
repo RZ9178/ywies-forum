@@ -34,9 +34,19 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 | `DATABASE_URL` | Supabase PostgreSQL 连接串；不配则走本地 SQLite |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 管理员账号，服务启动时同步 |
 | `SMTP_HOST/PORT/USER/PASS` | 邮件验证码备用能力，当前注册流程不使用 |
-| `SUPABASE_*` | 图片存储用（如启用），密钥只配在 Render，不进仓库 |
+| `SUPABASE_URL` | Supabase 项目地址（`https://xxxx.supabase.co`） |
+| `SUPABASE_SERVICE_KEY` | Supabase 服务端密钥（secret / service_role），只配在 Render |
+| `SUPABASE_BUCKET` | 图片存储桶名（当前为 `Ywies`，Public 读） |
 
 **任何密钥、连接串、授权码都不要提交进仓库或在对话里明文出现。**
+
+## 图片
+
+- 前端选择图片后自动压缩（最长边 1600px，JPEG，单张 ≤10MB），逐张上传到 Supabase Storage，帖子只存公开 URL
+- `posts.image_url` 存封面（第一张），`posts.images` 存 JSON 数组；老帖只有 `image_url` 时接口自动回退成单图数组
+- `POST /api/upload`（登录）接收 multipart `file`，返回 `{"url": "..."}`
+- `GET /api/config` 返回 `max_post_images`（当前 9）与上传是否可用
+- 图片删除暂不联动 Storage，删帖只删记录；后续可做清理任务
 
 ## 部署
 

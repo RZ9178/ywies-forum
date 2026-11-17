@@ -22,6 +22,7 @@ CREATE TABLE posts (
     author      TEXT NOT NULL DEFAULT '匿名同学',
     tags        TEXT DEFAULT '',
     image_url   TEXT DEFAULT '',
+    images      TEXT DEFAULT '',
     views       INTEGER NOT NULL DEFAULT 0,
     likes       INTEGER NOT NULL DEFAULT 0,
     coins       INTEGER NOT NULL DEFAULT 0,
