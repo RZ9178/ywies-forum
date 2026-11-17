@@ -56,7 +56,12 @@ function initAuth() {
     document.getElementById('registerBtn').hidden = logged;
     document.getElementById('userArea').hidden = !logged;
     if (logged) {
-        document.getElementById('userName').textContent = Auth.user.username;
+        const nameEl = document.getElementById('userName');
+        nameEl.textContent = Auth.user.username;
+        nameEl.title = '查看我的主页';
+        nameEl.addEventListener('click', function () {
+            if (Auth.user) openProfile(Auth.user.username);
+        });
         document.getElementById('adminBtn').hidden = !Auth.isAdmin();
     }
     document.getElementById('logoutBtn').addEventListener('click', function () {
@@ -133,7 +138,13 @@ function renderList(list) {
     const wrap = document.getElementById('postList');
     const empty = document.getElementById('emptyState');
     wrap.innerHTML = '';
-    if (!list.length) { empty.hidden = false; return; }
+    if (!list.length) {
+        empty.textContent = (searchQuery || currentTag)
+            ? '没有找到符合条件的帖子'
+            : '这里还没有帖子，点右上角「发帖」发第一条吧';
+        empty.hidden = false;
+        return;
+    }
     empty.hidden = true;
 
     const read = getRead();
@@ -148,6 +159,8 @@ function renderList(list) {
         const card = document.createElement('article');
         card.className = 'post-card' + (isRead ? ' is-read' : '');
         card.setAttribute('data-id', p.id);
+        card.tabIndex = 0;
+        card.setAttribute('role', 'link');
         card.innerHTML =
             '<div class="card-cover' + (cover ? '' : ' no-image') + '">' +
                 (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy">' : '') +
@@ -184,6 +197,13 @@ function renderList(list) {
             if (e.target.closest('.star-btn') || e.target.closest('.card-author')) return;
             markRead(p.id);
             openDetail(p.id);
+        });
+        card.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                markRead(p.id);
+                openDetail(p.id);
+            }
         });
         const star = card.querySelector('.card-star');
         if (star) star.addEventListener('click', function (e) {

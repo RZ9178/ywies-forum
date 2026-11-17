@@ -911,6 +911,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
    ============================================ */
 .user-name {
     color: var(--accent);
+    cursor: pointer;
     font-size: 14px;
     margin-right: 8px;
 }

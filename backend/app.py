@@ -49,7 +49,7 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 # 2.5 等级 -> 单帖图片张数（唯一真源，之后只改这里）
 LEVEL_IMAGE_LIMITS = {1: 3, 2: 5, 3: 7, 4: 9}
-# (发帖数达到, 等级)，从高到低匹配；等级只升不降
+# (发帖数达到, 等级)，从高到低匹配；按当前发帖数计算
 LEVEL_POST_THRESHOLDS = ((30, 4), (10, 3), (3, 2), (0, 1))
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_IMAGE_BYTES + 2 * 1024 * 1024
