@@ -327,6 +327,7 @@ function closePostModal() {
 async function handleImageFiles(fileList) {
     const files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
+    if (imageProcessing) { alert('图片还在上传，请稍候'); return; }
     const room = maxPostImages - uploadedImages.length;
     if (room <= 0) {
         alert('最多上传 ' + maxPostImages + ' 张图片');
@@ -350,6 +351,7 @@ async function handleImageFiles(fileList) {
             setUploadHint('正在上传第 ' + (i + 1) + ' / ' + todo.length + ' 张...');
             const url = await uploadImageBlob(blob, file.name);
             if (taskId !== imageTaskId) break;
+            if (uploadedImages.length >= maxPostImages) break;
             uploadedImages.push(url);
             renderImagePreviews();
         } catch (e) {

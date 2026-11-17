@@ -984,10 +984,12 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
    ============================================ */
 .detail-img-col {
     flex-direction: column;
-    align-items: stretch;
+    align-items: center;
+    justify-content: flex-start;
     gap: 10px;
 }
 .detail-thumbs {
+    width: 100%;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
