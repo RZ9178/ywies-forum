@@ -352,6 +352,11 @@ def create_post():
 def get_post(post_id):
     conn = get_db()
     try:
+        exists = conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not exists:
+            return jsonify({"error": "帖子不存在"}), 404
+        conn.execute("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id=?", (post_id,))
+        conn.commit()
         row = conn.execute(
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
                FROM posts p WHERE p.id=?""",
@@ -362,6 +367,7 @@ def get_post(post_id):
         return jsonify(_row_to_dict(row, row["reply_count"]))
     finally:
         conn.close()
+
 
 
 @app.route("/api/posts/<int:post_id>", methods=["DELETE"])
