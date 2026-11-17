@@ -26,6 +26,7 @@ let detailImages = [];
 let detailImageIndex = 0;
 let viewerImages = [];
 let viewerIndex = 0;
+let viewerDownloadName = 'image.jpg';
 
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
@@ -826,7 +827,9 @@ function bindImageViewer() {
         viewerStep(1);
     });
     document.getElementById('imageViewerDownload').addEventListener('click', function (e) {
+        e.preventDefault();
         e.stopPropagation();
+        downloadViewerImage();
     });
     viewer.addEventListener('click', function (e) {
         if (e.target === viewer || e.target.id === 'imageViewerImg') closeImageViewer();
@@ -881,22 +884,31 @@ function renderViewerImage() {
     const base = ((currentPost && currentPost.title) || 'image')
         .replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 40) || 'image';
     const suffix = viewerImages.length > 1 ? '-' + (viewerIndex + 1) : '';
-    const name = base + suffix + '.' + ext;
+    viewerDownloadName = base + suffix + '.' + ext;
+    link.setAttribute('href', src);
+    link.setAttribute('download', viewerDownloadName);
+    link.removeAttribute('target');
+}
 
-    if (src.slice(0, 5).toLowerCase() === 'data:') {
-        link.setAttribute('href', src);
-        link.setAttribute('download', name);
-        link.removeAttribute('target');
-    } else if (src.indexOf('/storage/v1/object/public/') !== -1) {
-        // Supabase 公开 URL 加 ?download 强制附件下载
-        link.setAttribute('href', src + (src.indexOf('?') === -1 ? '?' : '&') + 'download=' + encodeURIComponent(name));
-        link.setAttribute('download', name);
-        link.removeAttribute('target');
-    } else {
-        // 其他外链：跨域 download 会被忽略，回退新标签打开
-        link.setAttribute('href', src);
-        link.setAttribute('download', name);
-        link.setAttribute('target', '_blank');
+async function downloadViewerImage() {
+    const src = viewerImages[viewerIndex];
+    if (!src) return;
+    const name = viewerDownloadName || 'image.jpg';
+    try {
+        // 跨域图片先取成 Blob，再用同源 objectURL 触发下载，避免 download 属性被忽略
+        const res = await fetch(src);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 10000);
+    } catch (e) {
+        window.open(src, '_blank', 'noopener');
     }
 }
 
