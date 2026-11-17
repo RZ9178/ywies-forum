@@ -497,7 +497,7 @@ def user_profile(username):
                FROM posts p WHERE p.author=? ORDER BY p.id DESC LIMIT 20""",
             (username,),
         ).fetchall()
-        level = _level_from_post_count(total)
+        level = 4 if (user["is_admin"] or 0) else _level_from_post_count(total)
         return jsonify({
             "user": {
                 "id": user["id"],
