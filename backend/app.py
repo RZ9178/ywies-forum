@@ -390,6 +390,57 @@ def delete_post(post_id):
         conn.close()
 
 
+@app.route("/api/posts/<int:post_id>/like", methods=["POST"])
+@login_required
+def toggle_like(post_id):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+            return jsonify({"error": "帖子不存在"}), 404
+        if on:
+            conn.execute("UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (post_id,))
+        else:
+            conn.execute(
+                "UPDATE posts SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
+                (post_id,),
+            )
+        conn.commit()
+        # commit 后 cursor 结果集清空，重新 SELECT 拿真实值
+        row = conn.execute("SELECT likes FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "帖子不存在"}), 404
+        return jsonify({"likes": row["likes"]})
+    finally:
+        conn.close()
+
+
+@app.route("/api/posts/<int:post_id>/coin", methods=["POST"])
+@login_required
+def toggle_coin(post_id):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+            return jsonify({"error": "帖子不存在"}), 404
+        if on:
+            conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + 1 WHERE id=?", (post_id,))
+        else:
+            conn.execute(
+                "UPDATE posts SET coins = CASE WHEN coins > 0 THEN coins - 1 ELSE 0 END WHERE id=?",
+                (post_id,),
+            )
+        conn.commit()
+        row = conn.execute("SELECT coins FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "帖子不存在"}), 404
+        return jsonify({"coins": row["coins"]})
+    finally:
+        conn.close()
+
+
 @app.route("/api/posts/<int:post_id>/comments", methods=["GET"])
 def list_comments(post_id):
     conn = get_db()

@@ -351,23 +351,68 @@ function bindDetailModal() {
             renderComments();
         });
     });
-    document.getElementById('footerLike').addEventListener('click', function () {
+    document.getElementById('footerLike').addEventListener('click', async function () {
         if (!currentPost) return;
-        const liked = getLiked();
-        const idx = liked.indexOf(currentPost.id);
-        if (idx === -1) { liked.push(currentPost.id); currentPost.likes = (currentPost.likes || 0) + 1; }
-        else { liked.splice(idx, 1); currentPost.likes = (currentPost.likes || 0) - 1; }
-        localStorage.setItem(K_LIKED, JSON.stringify(liked));
-        updateFooterButtons();
+        const btn = this;
+        if (btn.disabled) return;
+        if (!Auth.isLoggedIn()) {
+            alert('请先登录再点赞');
+            window.location.href = 'login.html';
+            return;
+        }
+        // 本地记录决定这次是「赞」还是「取消赞」；计数以服务端返回为准
+        const on = getLiked().indexOf(currentPost.id) === -1;
+        btn.disabled = true;
+        try {
+            const res = await Auth.post(API + '/' + currentPost.id + '/like', { on: on });
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || '点赞失败');
+            }
+            const data = await res.json();
+            currentPost.likes = data.likes;
+            const liked = getLiked();
+            const idx = liked.indexOf(currentPost.id);
+            if (on && idx === -1) liked.push(currentPost.id);
+            if (!on && idx !== -1) liked.splice(idx, 1);
+            localStorage.setItem(K_LIKED, JSON.stringify(liked));
+            updateFooterButtons();
+        } catch (e) {
+            alert('点赞失败：' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
     });
-    document.getElementById('footerCoin').addEventListener('click', function () {
+    document.getElementById('footerCoin').addEventListener('click', async function () {
         if (!currentPost) return;
-        const coined = getCoined();
-        const idx = coined.indexOf(currentPost.id);
-        if (idx === -1) { coined.push(currentPost.id); currentPost.coins = (currentPost.coins || 0) + 1; }
-        else { coined.splice(idx, 1); currentPost.coins = (currentPost.coins || 0) - 1; }
-        localStorage.setItem(K_COINED, JSON.stringify(coined));
-        updateFooterButtons();
+        const btn = this;
+        if (btn.disabled) return;
+        if (!Auth.isLoggedIn()) {
+            alert('请先登录再投硬币');
+            window.location.href = 'login.html';
+            return;
+        }
+        const on = getCoined().indexOf(currentPost.id) === -1;
+        btn.disabled = true;
+        try {
+            const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: on });
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || '投币失败');
+            }
+            const data = await res.json();
+            currentPost.coins = data.coins;
+            const coined = getCoined();
+            const idx = coined.indexOf(currentPost.id);
+            if (on && idx === -1) coined.push(currentPost.id);
+            if (!on && idx !== -1) coined.splice(idx, 1);
+            localStorage.setItem(K_COINED, JSON.stringify(coined));
+            updateFooterButtons();
+        } catch (e) {
+            alert('投币失败：' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
     });
     document.getElementById('footerStar').addEventListener('click', function () {
         if (!currentPost) return;
