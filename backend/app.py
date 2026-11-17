@@ -885,9 +885,13 @@ def admin_delete_user(uid):
         user = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
         if not user:
             return jsonify({"error": "用户不存在"}), 404
-        # 级联删除该用户的帖子和评论（简化处理）
-        conn.execute("DELETE FROM comments WHERE author IN (SELECT username FROM users WHERE id=?)", (uid,))
-        conn.execute("DELETE FROM posts WHERE author=(SELECT username FROM users WHERE id=?)", (uid,))
+        # 级联删除该用户的内容：评论、帖子、帖下评论、通知、私信
+        username = user["username"]
+        conn.execute("DELETE FROM comments WHERE author=?", (username,))
+        conn.execute("DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE author=?)", (username,))
+        conn.execute("DELETE FROM posts WHERE author=?", (username,))
+        conn.execute("DELETE FROM notifs WHERE username=?", (username,))
+        conn.execute("DELETE FROM messages WHERE sender=? OR receiver=?", (username, username))
         conn.execute("DELETE FROM users WHERE id=?", (uid,))
         conn.commit()
         return jsonify({"ok": True})
