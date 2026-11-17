@@ -25,6 +25,7 @@ const K_AUTHOR = 'ywies_author';
 
 window.addEventListener('DOMContentLoaded', function () {
     initAuth();
+    refreshBellDot();
     fetchPosts();
     fetchTags();
     bindTabs();
@@ -180,9 +181,17 @@ function bindSearch() {
     });
 }
 function bindBell() {
-    document.getElementById('bellBtn').addEventListener('click', function () {
-        renderNotifs();
+    document.getElementById('bellBtn').addEventListener('click', async function () {
+        // 未登录绝不请求 /api/notifs：Auth 收到 401 会把匿名访客踢去登录页
+        if (!Auth.isLoggedIn()) {
+            alert('请先登录再查看通知');
+            return;
+        }
         document.getElementById('notifModal').hidden = false;
+        await renderNotifs();
+        try {
+            await Auth.post('/api/notifs/read', {});
+        } catch (e) {}
         document.getElementById('bellDot').hidden = true;
     });
     document.getElementById('notifClose').addEventListener('click', function () {
@@ -192,18 +201,49 @@ function bindBell() {
         if (e.target === this) this.hidden = true;
     });
 }
-function renderNotifs() {
+async function renderNotifs() {
     const list = document.getElementById('notifList');
-    const notifs = [
-        { title: '欢迎来到 YWIES 论坛', text: '这里是我们学校自己的校园论坛，欢迎发帖交流。', time: '2026-11-10' },
-        { title: '举报处理回执', text: '你举报的帖子已处理完毕。', time: '2026-11-09' },
-        { title: '系统通知', text: '论坛 1.0 版本上线，如有 bug 请联系学生会。', time: '2026-11-08' }
-    ];
+    if (!Auth.isLoggedIn()) {
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">请先登录后查看通知</div></div>';
+        return;
+    }
+    list.innerHTML = '<div class="notif-item"><div class="notif-text">加载中...</div></div>';
+    let data;
+    try {
+        const res = await Auth.get('/api/notifs');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (e) {
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">通知加载失败</div></div>';
+        return;
+    }
+    const notifs = data.notifs || [];
+    if (!notifs.length) {
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">暂无通知</div></div>';
+        return;
+    }
     list.innerHTML = notifs.map(function (n) {
-        return '<div class="notif-item"><div class="notif-title">' + escapeHtml(n.title) + '</div>' +
+        // 已读的通知整体淡化，和未读区分开
+        return '<div class="notif-item"' + (n.is_read ? ' style="opacity:0.55;"' : '') + '>' +
+               '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
                '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
-               '<div class="notif-time">' + escapeHtml(n.time) + '</div></div>';
+               '<div class="notif-time">' + escapeHtml(formatTime(n.created_at)) + '</div></div>';
     }).join('');
+}
+async function refreshBellDot() {
+    const dot = document.getElementById('bellDot');
+    if (!Auth.isLoggedIn()) {
+        dot.hidden = true;
+        return;
+    }
+    try {
+        const res = await Auth.get('/api/notifs');
+        if (!res.ok) { dot.hidden = true; return; }
+        const data = await res.json();
+        dot.hidden = !(data.unread > 0);
+    } catch (e) {
+        dot.hidden = true;
+    }
 }
 
 // ---------- 发帖弹窗 ----------

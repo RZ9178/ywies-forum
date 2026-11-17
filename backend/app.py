@@ -461,12 +461,24 @@ def create_comment(post_id):
         return jsonify({"error": "内容不能为空"}), 400
     conn = get_db()
     try:
+        # 先确认帖子存在，顺便拿到作者和标题给通知用（也修掉对不存在帖子插孤儿评论的旧问题）
+        post = conn.execute("SELECT title, author FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not post:
+            return jsonify({"error": "帖子不存在"}), 404
+        post_title = post["title"] or ""
+        post_author = post["author"] or ""
         conn.execute(
             "INSERT INTO comments (post_id, author, content) VALUES (?, ?, ?)",
             (post_id, author, content),
         )
-        conn.commit()
         new_id = conn.max_id("comments")
+        # 通知帖子作者；自己评论自己的帖子不发
+        if post_author and post_author != author:
+            conn.execute(
+                "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
+                (post_author, "有人评论了你的帖子", f"{author} 评论了《{post_title}》"),
+            )
+        conn.commit()
         return jsonify({"id": new_id, "post_id": post_id, "author": author,
                         "content": content, "likes": 0, "created_at": "刚刚"}), 201
     finally:
@@ -486,6 +498,40 @@ def delete_comment(post_id, cid):
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
         conn.execute("DELETE FROM comments WHERE id=?", (cid,))
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
+@app.route("/api/notifs", methods=["GET"])
+@login_required
+def list_notifs():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, text, is_read, created_at FROM notifs WHERE username=? ORDER BY id DESC",
+            (request.current_user["username"],),
+        ).fetchall()
+        notifs = [{
+            "id": r["id"],
+            "title": r["title"] or "",
+            "text": r["text"] or "",
+            "is_read": r["is_read"] or 0,
+            "created_at": _fmt_time(r["created_at"]),
+        } for r in rows]
+        unread = sum(1 for n in notifs if not n["is_read"])
+        return jsonify({"notifs": notifs, "unread": unread})
+    finally:
+        conn.close()
+
+
+@app.route("/api/notifs/read", methods=["POST"])
+@login_required
+def read_notifs():
+    conn = get_db()
+    try:
+        conn.execute("UPDATE notifs SET is_read=1 WHERE username=?", (request.current_user["username"],))
         conn.commit()
         return jsonify({"ok": True})
     finally:
@@ -606,6 +652,29 @@ def _migrate():
                     author TEXT NOT NULL,
                     content TEXT NOT NULL,
                     likes INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifs (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    text TEXT DEFAULT '',
+                    is_read INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+        else:
+            # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    title TEXT DEFAULT '',
+                    text TEXT DEFAULT '',
+                    is_read INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
