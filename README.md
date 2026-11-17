@@ -54,6 +54,7 @@ Render Web Service，`main` 分支 push 后自动构建部署：
 
 - Build：`pip install -r backend/requirements.txt`
 - Start：`cd backend && python app.py`
+- 生产模式：未设置 `FLASK_DEBUG` 时由 **Waitress** 多线程 WSGI 承载（6 线程），不使用 Flask/Werkzeug 开发服务器
 - 自检：`GET /api/health` 返回当前 commit 与数据库类型（不暴露密钥）
 
 Free 套餐闲置约 15 分钟休眠，冷启动可能需要 50 秒以上；线上数据落在 Supabase，不依赖本地 SQLite 文件。

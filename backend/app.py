@@ -910,4 +910,11 @@ if __name__ == "__main__":
     _migrate()
     # 线上默认关闭调试器（Werkzeug 调试页会暴露源码与执行入口）；本地设 FLASK_DEBUG=1 才开
     debug_mode = os.getenv("FLASK_DEBUG", "").strip() in ("1", "true", "True") and not DATABASE_URL
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=debug_mode)
+    port = int(os.getenv("PORT", "5000"))
+    if debug_mode:
+        app.run(host="0.0.0.0", port=port, debug=True)
+    else:
+        # 生产环境用 Waitress（多线程 WSGI），不再使用 Flask/Werkzeug 开发服务器
+        from waitress import serve
+        print(f"[启动] Waitress 生产 WSGI，端口 {port}，线程 6")
+        serve(app, host="0.0.0.0", port=port, threads=6)
