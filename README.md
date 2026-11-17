@@ -48,6 +48,13 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - `GET /api/config` 返回 `max_post_images`（当前 9）与上传是否可用
 - 图片删除暂不联动 Storage，删帖只删记录；后续可做清理任务
 
+## 等级与图片张数
+
+- 等级 → 单帖最多图片：Lv1 3 张 / Lv2 5 张 / Lv3 7 张 / Lv4 9 张
+- 按发帖数升级：0 帖 Lv1、3 帖 Lv2、10 帖 Lv3、30 帖 Lv4；管理员固定 Lv4
+- 唯一真源：`backend/app.py` 的 `LEVEL_IMAGE_LIMITS` / `LEVEL_POST_THRESHOLDS`
+- `/api/config` 按当前登录用户返回 `level` 与 `max_post_images`
+
 ## 部署
 
 Render Web Service，`main` 分支 push 后自动构建部署：

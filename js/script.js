@@ -139,41 +139,62 @@ function renderList(list) {
     const bm = getBookmarks();
 
     list.forEach(function (p) {
-        const row = document.createElement('div');
-        row.className = 'post-row';
         const isRead = read.indexOf(p.id) !== -1;
         const isBm = bm.indexOf(p.id) !== -1;
         const firstTag = (p.tags || '').split(',')[0].trim();
+        const cover = getPostImages(p)[0] || '';
 
-        row.innerHTML =
-            '<span class="' + (isRead ? 'read-dot' : 'unread-dot') + '"></span>' +
-            '<div class="col-main">' +
-                '<span class="post-title">' + escapeHtml(p.title || '无标题') + '</span>' +
-                (firstTag ? '<span class="post-tag">' + escapeHtml(firstTag) + '</span>' : '') +
-                (p.image ? '<span class="post-img-icon">🖼</span>' : '') +
+        const card = document.createElement('article');
+        card.className = 'post-card' + (isRead ? ' is-read' : '');
+        card.setAttribute('data-id', p.id);
+        card.innerHTML =
+            '<div class="card-cover' + (cover ? '' : ' no-image') + '">' +
+                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy">' : '') +
+                '<svg class="icon card-cover-icon" aria-hidden="true"><use href="#i-image"></use></svg>' +
+                (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
+                '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
+                    '<svg class="icon" aria-hidden="true"><use href="#i-star"></use></svg>' +
+                '</button>' +
+                (firstTag ? '<span class="post-tag card-tag">' + escapeHtml(firstTag) + '</span>' : '') +
             '</div>' +
-            '<span class="col-author"><a href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a></span>' +
-            '<span class="col-replies">' + (p.replies || 0) + '</span>' +
-            '<span class="col-views">' + (p.views || 0) + '</span>' +
-            '<span class="col-time">' + formatTime(p.created_at) + '</span>' +
-            '<button class="star-btn' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏">' + (isBm ? '★' : '☆') + '</button>';
+            '<div class="card-body">' +
+                '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
+                '<div class="card-meta">' +
+                    '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a>' +
+                    '<span class="card-time">' + formatTime(p.created_at) + '</span>' +
+                '</div>' +
+                '<div class="card-stats">' +
+                    '<span title="点赞"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
+                    '<span title="浏览"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
+                    '<span title="回复"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
+                '</div>' +
+            '</div>';
 
-        row.addEventListener('click', function (e) {
-            if (e.target.classList.contains('star-btn')) return;
-            if (e.target.tagName === 'A') return;
+        const img = card.querySelector('.card-cover img');
+        if (img) {
+            img.addEventListener('error', function () {
+                this.remove();
+                const box = card.querySelector('.card-cover');
+                if (box) box.classList.add('no-image');
+            });
+        }
+
+        card.addEventListener('click', function (e) {
+            if (e.target.closest('.star-btn') || e.target.closest('.card-author')) return;
             markRead(p.id);
             openDetail(p.id);
         });
-        row.querySelector('.star-btn').addEventListener('click', function (e) {
+        const star = card.querySelector('.card-star');
+        if (star) star.addEventListener('click', function (e) {
             e.stopPropagation();
             toggleBookmark(p.id);
         });
-        const authorLink = row.querySelector('.col-author a');
+        const authorLink = card.querySelector('.card-author');
         if (authorLink) authorLink.addEventListener('click', function (e) {
             e.stopPropagation();
             alert('用户：' + this.getAttribute('data-author') + '\n（用户主页正在建设中）');
         });
-        wrap.appendChild(row);
+        wrap.appendChild(card);
     });
 }
 
@@ -488,13 +509,15 @@ function setUploadHint(text) {
 
 async function fetchConfig() {
     try {
-        const res = await fetch('/api/config');
+        const res = await Auth.get('/api/config');
         if (!res.ok) return;
         const cfg = await res.json();
         if (cfg && cfg.max_post_images) {
             maxPostImages = cfg.max_post_images;
             const label = document.getElementById('imageLabel');
-            if (label) label.textContent = '图片（可选，最多 ' + maxPostImages + ' 张，单张 ≤10MB）';
+            if (label) {
+                label.textContent = '图片（可选，Lv.' + (cfg.level || 1) + ' 最多 ' + maxPostImages + ' 张，单张 ≤10MB）';
+            }
         }
         const ph = document.getElementById('uploadPlaceholder');
         if (ph && cfg && cfg.upload_enabled === false) {
@@ -517,7 +540,7 @@ function renderTagPicker() {
         }
     });
     if (!allTags.length && !selectedTags.length) {
-        html = '<span style="color:#6b6b76;font-size:13px;">暂无标签，在下方输入框输入新标签</span>';
+        html = '<span style="color:var(--text-dim);font-size:13px;">暂无标签，在下方输入框输入新标签</span>';
     }
     picker.innerHTML = html;
     picker.querySelectorAll('.tag-option').forEach(function (el) {
@@ -551,6 +574,7 @@ async function submitPost() {
             throw new Error(err.error || '发布失败');
         }
         closePostModal();
+        await fetchConfig();
         await fetchPosts();
         await fetchTags();
     } catch (e) {
@@ -719,7 +743,7 @@ function renderComments() {
     const sorted = allComments.slice();
     if (commentSort === 'latest') sorted.reverse();
     if (!sorted.length) {
-        list.innerHTML = '<div style="color:#6b6b76;font-size:13px;padding:20px 0;text-align:center;">还没有评论，来说点什么吧</div>';
+        list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;">还没有评论，来说点什么吧</div>';
         return;
     }
     const author = currentPost ? currentPost.author : '';

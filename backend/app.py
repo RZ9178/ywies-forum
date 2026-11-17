@@ -46,7 +46,11 @@ SUPABASE_URL = (os.getenv("SUPABASE_URL") or "").strip().strip('"').strip("'").r
 SUPABASE_KEY = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip().strip('"').strip("'")
 SUPABASE_BUCKET = (os.getenv("SUPABASE_BUCKET") or "").strip().strip('"').strip("'")
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
-MAX_POST_IMAGES = 9
+
+# 2.5 等级 -> 单帖图片张数（唯一真源，之后只改这里）
+LEVEL_IMAGE_LIMITS = {1: 3, 2: 5, 3: 7, 4: 9}
+# (发帖数达到, 等级)，从高到低匹配；等级只升不降
+LEVEL_POST_THRESHOLDS = ((30, 4), (10, 3), (3, 2), (0, 1))
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_IMAGE_BYTES + 2 * 1024 * 1024
 
@@ -125,8 +129,10 @@ def payload_too_large(e):
 
 @app.route("/api/config", methods=["GET"])
 def app_config():
+    level, image_limit, _ = _user_level_and_limit(_get_current_user())
     return jsonify({
-        "max_post_images": MAX_POST_IMAGES,
+        "max_post_images": image_limit,
+        "level": level,
         "max_image_mb": MAX_IMAGE_BYTES // (1024 * 1024),
         "upload_enabled": bool(SUPABASE_URL and SUPABASE_KEY and SUPABASE_BUCKET),
     })
@@ -146,6 +152,30 @@ def _get_current_user():
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+def _level_from_post_count(count):
+    for need, level in LEVEL_POST_THRESHOLDS:
+        if count >= need:
+            return level
+    return 1
+
+
+def _user_level_and_limit(user):
+    """返回 (等级, 单帖图片上限, 已发帖数)。未登录按 1 级。"""
+    if not user:
+        return 1, LEVEL_IMAGE_LIMITS[1], 0
+    conn = get_db()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) AS c FROM posts WHERE author=?", (user["username"],)
+        ).fetchone()["c"]
+    finally:
+        conn.close()
+    if user.get("is_admin"):
+        return 4, LEVEL_IMAGE_LIMITS[4], count
+    level = _level_from_post_count(count)
+    return level, LEVEL_IMAGE_LIMITS[level], count
 
 
 def login_required(f):
@@ -260,7 +290,10 @@ def me():
     user = _get_current_user()
     if not user:
         return jsonify({"error": "未登录"}), 401
-    return jsonify({"user": user})
+    level, image_limit, post_count = _user_level_and_limit(user)
+    data = dict(user)
+    data.update({"level": level, "max_post_images": image_limit, "post_count": post_count})
+    return jsonify({"user": data})
 
 
 @app.route("/api/health", methods=["GET"])
@@ -404,8 +437,9 @@ def create_post():
             return jsonify({"error": "图片太大"}), 400
         images = [legacy]
         legacy_single = True
-    if len(images) > MAX_POST_IMAGES:
-        return jsonify({"error": f"最多上传 {MAX_POST_IMAGES} 张图片"}), 400
+    _, image_limit, _ = _user_level_and_limit(request.current_user)
+    if len(images) > image_limit:
+        return jsonify({"error": f"当前等级最多上传 {image_limit} 张图片"}), 400
 
     cover = images[0] if images else ""
     images_json = "" if (not images or legacy_single) else json.dumps(images, ensure_ascii=False)

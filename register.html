@@ -49,6 +49,11 @@
                 btn.disabled = false;
             }
         }
+        ['regName','regPassword'].forEach(function (id) {
+            document.getElementById(id).addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') doRegister();
+            });
+        });
     </script>
 </body>
 </html>

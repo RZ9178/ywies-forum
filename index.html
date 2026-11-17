@@ -8,6 +8,16 @@
 </head>
 <body>
 
+    <!-- 图标集（2.4）：统一线性图标，currentColor 跟随主题 -->
+    <svg xmlns="http://www.w3.org/2000/svg" class="icon-sprite" aria-hidden="true">
+        <symbol id="i-like" viewBox="0 0 24 24"><path d="M12 20.2s-7.2-4.6-7.2-9.4A4.1 4.1 0 0 1 12 8.1a4.1 4.1 0 0 1 7.2 2.7c0 4.8-7.2 9.4-7.2 9.4Z"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+        <symbol id="i-reply" viewBox="0 0 24 24"><path d="M20 11.5a6.5 6.5 0 0 1-6.5 6.5H9l-4 3v-3.7A6.5 6.5 0 0 1 10.5 5h3A6.5 6.5 0 0 1 20 11.5Z"/></symbol>
+        <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.9L12 3.5Z"/></symbol>
+        <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9.5 9.5h5M9.5 14.5h5M12 8v8"/></symbol>
+        <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m5 17 4.5-4.5 3 3L16 11.5l3 3"/></symbol>
+    </svg>
+
     <!-- 顶部导航 -->
     <header class="topbar">
         <div class="topbar-inner">
@@ -65,7 +75,7 @@
             <span class="col-views">浏览</span>
             <span class="col-time">最后回复</span>
         </div>
-        <div id="postList"></div>
+        <div id="postList" class="post-grid"></div>
         <div class="empty-state" id="emptyState" hidden>
             这里还没有帖子，点右上角「发帖」发第一条吧
         </div>
@@ -91,8 +101,8 @@
             </div>
             <div class="post-body">
                 <div class="post-form-group">
-                    <label>昵称</label>
-                    <input type="text" id="postAuthor" placeholder="你的昵称（可留空默认匿名同学）">
+                    <label>发布身份</label>
+                    <input type="text" id="postAuthor" readonly title="以当前登录账号发布">
                 </div>
                 <div class="post-form-group">
                     <label>标题</label>
@@ -161,12 +171,12 @@
 
             <div class="detail-footer">
                 <div class="footer-input">
-                    <input type="text" id="commentAuthor" placeholder="昵称" style="width:90px;margin-right:6px;">
+                    <input type="text" id="commentAuthor" readonly title="以当前登录账号评论" style="width:90px;margin-right:6px;">
                     <input type="text" id="commentInput" placeholder="说点什么...">
                 </div>
-                <button class="footer-btn" id="footerLike" title="点赞">👍 <span id="footerLikeCount">0</span></button>
-                <button class="footer-btn" id="footerCoin" title="硬币">🪙 <span id="footerCoinCount">0</span></button>
-                <button class="footer-btn" id="footerStar" title="收藏">☆ <span id="footerStarCount">0</span></button>
+                <button class="footer-btn" id="footerLike" title="点赞"><svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg> <span id="footerLikeCount">0</span></button>
+                <button class="footer-btn" id="footerCoin" title="硬币"><svg class="icon icon-coin" aria-hidden="true"><use href="#i-coin"></use></svg> <span id="footerCoinCount">0</span></button>
+                <button class="footer-btn" id="footerStar" title="收藏"><svg class="icon icon-star" aria-hidden="true"><use href="#i-star"></use></svg> <span id="footerStarCount">0</span></button>
             </div>
         </div>
     </div>

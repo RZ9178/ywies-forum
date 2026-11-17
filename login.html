@@ -44,6 +44,11 @@
                 btn.disabled = false;
             }
         }
+        ['loginName','loginPassword'].forEach(function (id) {
+            document.getElementById(id).addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') doLogin();
+            });
+        });
     </script>
 </body>
 </html>
