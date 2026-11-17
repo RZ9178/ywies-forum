@@ -199,6 +199,7 @@ function renderList(list) {
             openDetail(p.id);
         });
         card.addEventListener('keydown', function (e) {
+            if (e.target !== card) return;
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 markRead(p.id);
