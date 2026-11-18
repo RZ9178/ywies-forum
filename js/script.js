@@ -150,9 +150,9 @@ function savePostsCache(list) {
                 content: (p.content || '').slice(0, 500),
                 author: p.author || '',
                 tags: p.tags || '',
-                image: (p.image && p.image.indexOf('data:') !== 0) ? p.image : '',
+                image: (p.image && p.image.slice(0, 5).toLowerCase() !== 'data:') ? p.image : '',
                 images: (p.images || []).filter(function (u) {
-                    return u && u.indexOf('data:') !== 0;
+                    return u && u.slice(0, 5).toLowerCase() !== 'data:';
                 }),
                 has_image: !!(p.has_image || p.image || (p.images && p.images.length)),
                 views: p.views || 0,
@@ -280,7 +280,7 @@ function renderList(list) {
         card.setAttribute('role', 'link');
         card.innerHTML =
             '<div class="card-cover' + (cover ? '' : ' no-image') + '">' +
-                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy">' : '') +
+                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy" decoding="async">' : '') +
                 '<svg class="icon card-cover-icon" aria-hidden="true"><use href="#i-image"></use></svg>' +
                 (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
                 '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
@@ -961,7 +961,7 @@ function renderDetailImages() {
         return;
     }
     if (detailImageIndex >= detailImages.length) detailImageIndex = 0;
-    box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="帖子图片">';
+    box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="帖子图片" decoding="async">';
     if (!thumbs) return;
     if (detailImages.length <= 1) {
         thumbs.hidden = true;
@@ -972,7 +972,7 @@ function renderDetailImages() {
     thumbs.innerHTML = detailImages.map(function (u, i) {
         return '<button type="button" class="detail-thumb' + (i === detailImageIndex ? ' active' : '') +
             '" data-i="' + i + '" title="第 ' + (i + 1) + ' 张">' +
-            '<img src="' + escapeHtml(u) + '" alt=""></button>';
+            '<img src="' + escapeHtml(u) + '" alt="" loading="lazy" decoding="async"></button>';
     }).join('');
     thumbs.querySelectorAll('.detail-thumb').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
@@ -1049,7 +1049,7 @@ function renderProfile(data) {
             const cover = getPostImages(p)[0] || '';
             html += '<div class="profile-post" data-id="' + p.id + '">' +
                 '<div class="profile-post-thumb">' +
-                    (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy">'
+                    (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy" decoding="async">'
                            : '<svg class="icon" aria-hidden="true"><use href="#i-image"></use></svg>') +
                 '</div>' +
                 '<div class="profile-post-main">' +

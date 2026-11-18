@@ -387,7 +387,7 @@ def _row_to_dict(row, reply_count=None):
     # 改成一个可缓存的图片地址，浏览器按需加载。
     normalized = []
     for u in images:
-        if u.startswith("data:"):
+        if u[:5].lower() == "data:":
             u = f"/media/posts/{row['id']}"
         if u not in normalized:
             normalized.append(u)
@@ -546,7 +546,7 @@ def post_media(post_id):
     if not row or not row["image_url"]:
         return jsonify({"error": "图片不存在"}), 404
     src = row["image_url"]
-    if not src.startswith("data:"):
+    if src[:5].lower() != "data:":
         if not (src.startswith("http://") or src.startswith("https://")):
             return jsonify({"error": "图片不存在"}), 404
         return redirect(src)
