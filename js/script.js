@@ -113,7 +113,9 @@ async function fetchPosts() {
         timer = setTimeout(function () { controller.abort(); }, 60000);
     }
     try {
-        const res = await Auth.get(API, controller ? { signal: controller.signal } : undefined);
+        const opts = { cache: 'no-store' };
+        if (controller) opts.signal = controller.signal;
+        const res = await Auth.get(API, opts);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         if (!Array.isArray(data)) throw new Error('返回数据格式不对');
