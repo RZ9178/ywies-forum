@@ -36,7 +36,7 @@ const K_FOLLOW = 'ywies_following';
 const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
 const K_AUTHOR = 'ywies_author';
-const K_POSTS_CACHE = 'ywies_posts_cache_v1';
+const K_POSTS_CACHE = 'ywies_posts_cache_v2';
 
 let postsLoading = false;
 let postsLoadFailed = false;
@@ -1346,6 +1346,9 @@ async function downloadViewerImage() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
+        const type = (blob.type || '').toLowerCase();
+        const extMap = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+        if (extMap[type]) name = name.replace(/\.[^.]+$/, '') + '.' + extMap[type];
         const a = document.createElement('a');
         a.href = objectUrl;
         a.download = name;

@@ -14,6 +14,8 @@
 #   GET  /api/tags                 -> 所有标签
 #   GET  /api/admin/stats          -> 注册用户数等统计（管理员）
 
+import base64
+import io
 import json
 import os
 import re
@@ -27,7 +29,7 @@ from functools import wraps
 import psycopg2
 import psycopg2.extras
 import requests
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from ai_client import ai_reply
@@ -123,6 +125,9 @@ def add_cors_headers(resp):
         # 接口不能被平板/浏览器缓存，否则会看到旧的空列表
         resp.headers["Cache-Control"] = "no-store"
         resp.headers["Vary"] = "Authorization"
+    elif request.path.startswith("/media/"):
+        # 历史图片走可缓存地址，首次加载后浏览器直接复用
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     elif resp.mimetype == "text/html":
         # HTML 每次回源校验，保证拿到最新静态资源版本号
         resp.headers["Cache-Control"] = "no-cache"
@@ -369,20 +374,25 @@ def _parse_images(raw):
     return [u for u in value if isinstance(u, str) and u.strip()]
 
 
-def _row_to_dict(row, reply_count=None, for_list=False):
+def _row_to_dict(row, reply_count=None):
     keys = row.keys()
     images = _parse_images(row["images"]) if "images" in keys else []
     cover = row["image_url"] or ""
     if not images and cover:
         # 兼容 2.2 之前只存了单张 image_url 的老帖
         images = [cover]
-    if images:
-        cover = images[0]
     has_image = bool(images or cover)
-    if for_list:
-        # 列表页只保留 Storage URL；历史 base64 图片不进列表，避免一次几 MB
-        images = [u for u in images if not u.startswith("data:")]
-        cover = images[0] if images else ""
+
+    # 历史 base64 图片不放进 JSON（否则列表/详情一次几 MB），
+    # 改成一个可缓存的图片地址，浏览器按需加载。
+    normalized = []
+    for u in images:
+        if u.startswith("data:"):
+            u = f"/media/posts/{row['id']}"
+        if u not in normalized:
+            normalized.append(u)
+    images = normalized
+    cover = images[0] if images else ""
     return {
         "id": row["id"],
         "title": row["title"],
@@ -408,7 +418,7 @@ def list_posts():
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
                FROM posts p ORDER BY p.id DESC"""
         ).fetchall()
-        return jsonify([_row_to_dict(r, r["reply_count"], for_list=True) for r in rows])
+        return jsonify([_row_to_dict(r, r["reply_count"]) for r in rows])
     finally:
         conn.close()
 
@@ -520,10 +530,39 @@ def user_profile(username):
                 "post_count": total,
                 "created_at": _fmt_time(user["created_at"]),
             },
-            "posts": [_row_to_dict(r, r["reply_count"], for_list=True) for r in rows],
+            "posts": [_row_to_dict(r, r["reply_count"]) for r in rows],
         })
     finally:
         conn.close()
+
+
+@app.route("/media/posts/<int:post_id>", methods=["GET"])
+def post_media(post_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT image_url FROM posts WHERE id=?", (post_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["image_url"]:
+        return jsonify({"error": "图片不存在"}), 404
+    src = row["image_url"]
+    if not src.startswith("data:"):
+        if not (src.startswith("http://") or src.startswith("https://")):
+            return jsonify({"error": "图片不存在"}), 404
+        return redirect(src)
+    m = re.match(r"^data:(image/(?:jpeg|jpg|png|webp|gif));base64,(.+)$", src, re.S | re.I)
+    if not m:
+        return jsonify({"error": "图片格式不支持"}), 404
+    mime = m.group(1).lower()
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    try:
+        blob = base64.b64decode(m.group(2))
+    except Exception:
+        return jsonify({"error": "图片数据损坏"}), 404
+    resp = send_file(io.BytesIO(blob), mimetype=mime, max_age=31536000)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
 
 
 @app.route("/api/posts/<int:post_id>", methods=["DELETE"])
