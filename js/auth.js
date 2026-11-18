@@ -30,7 +30,7 @@ const Auth = {
         return res;
     },
 
-    async get(url) { return this.fetch(url, { method: 'GET' }); },
+    async get(url, options) { return this.fetch(url, Object.assign({ method: 'GET' }, options || {})); },
     async post(url, body) { return this.fetch(url, { method: 'POST', body: JSON.stringify(body || {}) }); },
     async del(url) { return this.fetch(url, { method: 'DELETE' }); },
 

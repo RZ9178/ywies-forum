@@ -106,8 +106,14 @@ async function fetchPosts() {
     if (postsLoading) return;
     postsLoading = true;
     if (!allPosts.length) showPostsLoading();
+    let controller = null;
+    let timer = null;
+    if (typeof AbortController !== 'undefined') {
+        controller = new AbortController();
+        timer = setTimeout(function () { controller.abort(); }, 45000);
+    }
     try {
-        const res = await Auth.get(API);
+        const res = await Auth.get(API, controller ? { signal: controller.signal } : undefined);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         if (!Array.isArray(data)) throw new Error('返回数据格式不对');
@@ -124,6 +130,7 @@ async function fetchPosts() {
         if (!allPosts.length) showPostsError();
         schedulePostsRetry();
     } finally {
+        if (timer) clearTimeout(timer);
         postsLoading = false;
     }
 }
