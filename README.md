@@ -63,6 +63,12 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - `POST /api/messages/<username>`：发送，最多 1000 字，同时给对方写一条通知
 - 只能看到自己参与的会话；不能给自己发
 
+## 性能与加载
+
+- 列表/详情接口不再返回 base64 图片；历史图片走 `/media/posts/<id>`，浏览器强缓存
+- 首页把最近 50 帖缓存到 localStorage，先渲染缓存再后台刷新；失败自动重试（2s/5s/10s/20s），60 秒超时
+- API 响应 `Cache-Control: no-store`，HTML `no-cache`，避免平板缓存旧空列表
+
 ## 部署
 
 Render Web Service，`main` 分支 push 后自动构建部署：

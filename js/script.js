@@ -110,7 +110,7 @@ async function fetchPosts() {
     let timer = null;
     if (typeof AbortController !== 'undefined') {
         controller = new AbortController();
-        timer = setTimeout(function () { controller.abort(); }, 45000);
+        timer = setTimeout(function () { controller.abort(); }, 60000);
     }
     try {
         const res = await Auth.get(API, controller ? { signal: controller.signal } : undefined);
