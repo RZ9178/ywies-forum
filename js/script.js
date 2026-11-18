@@ -36,14 +36,17 @@ const K_FOLLOW = 'ywies_following';
 const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
 const K_AUTHOR = 'ywies_author';
+const K_POSTS_CACHE = 'ywies_posts_cache_v1';
+
+let postsLoading = false;
+let postsLoadFailed = false;
+let postsRetryCount = 0;
+let postsRetryTimer = null;
 
 window.addEventListener('DOMContentLoaded', function () {
     initAuth();
-    refreshBellDot();
-    refreshMsgDot();
-    fetchConfig();
-    fetchPosts();
-    fetchTags();
+    const hadCache = loadPostsCache();
+    if (hadCache) render();
     bindTabs();
     bindSearch();
     bindBell();
@@ -52,6 +55,31 @@ window.addEventListener('DOMContentLoaded', function () {
     bindProfileModal();
     bindMessages();
     bindImageViewer();
+
+    // 帖子优先加载；次要请求错开，减少同时抢数据库连接
+    fetchPosts();
+    setTimeout(fetchTags, 150);
+    setTimeout(function () {
+        refreshBellDot();
+        refreshMsgDot();
+        fetchConfig();
+    }, 600);
+
+    document.getElementById('emptyState').addEventListener('click', function () {
+        if (postsLoadFailed) {
+            postsRetryCount = 0;
+            fetchPosts();
+        }
+    });
+    window.addEventListener('online', function () {
+        if (!allPosts.length || postsLoadFailed) fetchPosts();
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && (!allPosts.length || postsLoadFailed)) fetchPosts();
+    });
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) fetchPosts();
+    });
 });
 
 function initAuth() {
@@ -75,20 +103,102 @@ function initAuth() {
 }
 
 async function fetchPosts() {
+    if (postsLoading) return;
+    postsLoading = true;
+    if (!allPosts.length) showPostsLoading();
     try {
         const res = await Auth.get(API);
-        allPosts = await res.json();
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error('返回数据格式不对');
+        allPosts = data;
+        postsLoadFailed = false;
+        postsRetryCount = 0;
+        if (postsRetryTimer) { clearTimeout(postsRetryTimer); postsRetryTimer = null; }
+        savePostsCache(data);
+        const empty = document.getElementById('emptyState');
+        if (empty) empty.classList.remove('retry');
+        render();
     } catch (e) {
-        allPosts = [];
+        postsLoadFailed = true;
+        if (!allPosts.length) showPostsError();
+        schedulePostsRetry();
+    } finally {
+        postsLoading = false;
     }
-    render();
+}
+
+function loadPostsCache() {
+    try {
+        const raw = localStorage.getItem(K_POSTS_CACHE);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data) || !data.length) return false;
+        allPosts = data;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function savePostsCache(list) {
+    try {
+        const slim = list.slice(0, 50).map(function (p) {
+            return {
+                id: p.id,
+                title: p.title || '',
+                content: (p.content || '').slice(0, 500),
+                author: p.author || '',
+                tags: p.tags || '',
+                image: (p.image && p.image.indexOf('data:') !== 0) ? p.image : '',
+                images: (p.images || []).filter(function (u) {
+                    return u && u.indexOf('data:') !== 0;
+                }),
+                has_image: !!(p.has_image || p.image || (p.images && p.images.length)),
+                views: p.views || 0,
+                likes: p.likes || 0,
+                coins: p.coins || 0,
+                replies: p.replies || 0,
+                created_at: p.created_at || ''
+            };
+        });
+        localStorage.setItem(K_POSTS_CACHE, JSON.stringify(slim));
+    } catch (e) {}
+}
+
+function showPostsLoading() {
+    const empty = document.getElementById('emptyState');
+    if (!empty) return;
+    empty.classList.remove('retry');
+    empty.textContent = '帖子加载中...';
+    empty.hidden = false;
+}
+
+function showPostsError() {
+    const empty = document.getElementById('emptyState');
+    if (!empty) return;
+    empty.classList.add('retry');
+    empty.textContent = '帖子加载失败，点这里重试';
+    empty.hidden = false;
+}
+
+function schedulePostsRetry() {
+    if (postsRetryTimer || postsRetryCount >= 4) return;
+    const delays = [2000, 5000, 10000, 20000];
+    const delay = delays[postsRetryCount++];
+    postsRetryTimer = setTimeout(function () {
+        postsRetryTimer = null;
+        fetchPosts();
+    }, delay);
 }
 
 async function fetchTags() {
     try {
         const res = await Auth.get(TAGS_API);
-        allTags = await res.json();
-    } catch (e) { allTags = []; }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (Array.isArray(data)) allTags = data;
+    } catch (e) {}
     renderTagBar();
 }
 
@@ -143,6 +253,9 @@ function renderList(list) {
     const empty = document.getElementById('emptyState');
     wrap.innerHTML = '';
     if (!list.length) {
+        if (!allPosts.length && postsLoadFailed) { showPostsError(); return; }
+        if (!allPosts.length && postsLoading) { showPostsLoading(); return; }
+        empty.classList.remove('retry');
         empty.textContent = (searchQuery || currentTag)
             ? '没有找到符合条件的帖子'
             : '这里还没有帖子，点右上角「发帖」发第一条吧';
@@ -231,6 +344,7 @@ function bindTabs() {
             document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
             tab.classList.add('active');
             currentTab = tab.getAttribute('data-tab');
+            if (!allPosts.length && !postsLoading) fetchPosts();
             render();
         });
     });

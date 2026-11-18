@@ -119,6 +119,13 @@ def add_cors_headers(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    if request.path.startswith("/api/"):
+        # 接口不能被平板/浏览器缓存，否则会看到旧的空列表
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["Vary"] = "Authorization"
+    elif resp.mimetype == "text/html":
+        # HTML 每次回源校验，保证拿到最新静态资源版本号
+        resp.headers["Cache-Control"] = "no-cache"
     return resp
 
 
@@ -362,7 +369,7 @@ def _parse_images(raw):
     return [u for u in value if isinstance(u, str) and u.strip()]
 
 
-def _row_to_dict(row, reply_count=None):
+def _row_to_dict(row, reply_count=None, for_list=False):
     keys = row.keys()
     images = _parse_images(row["images"]) if "images" in keys else []
     cover = row["image_url"] or ""
@@ -371,6 +378,11 @@ def _row_to_dict(row, reply_count=None):
         images = [cover]
     if images:
         cover = images[0]
+    has_image = bool(images or cover)
+    if for_list:
+        # 列表页只保留 Storage URL；历史 base64 图片不进列表，避免一次几 MB
+        images = [u for u in images if not u.startswith("data:")]
+        cover = images[0] if images else ""
     return {
         "id": row["id"],
         "title": row["title"],
@@ -379,6 +391,7 @@ def _row_to_dict(row, reply_count=None):
         "tags": row["tags"] or "",
         "image": cover,
         "images": images,
+        "has_image": has_image,
         "views": row["views"],
         "likes": row["likes"] if "likes" in keys else 0,
         "coins": row["coins"] if "coins" in keys else 0,
@@ -395,7 +408,7 @@ def list_posts():
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
                FROM posts p ORDER BY p.id DESC"""
         ).fetchall()
-        return jsonify([_row_to_dict(r, r["reply_count"]) for r in rows])
+        return jsonify([_row_to_dict(r, r["reply_count"], for_list=True) for r in rows])
     finally:
         conn.close()
 
@@ -507,7 +520,7 @@ def user_profile(username):
                 "post_count": total,
                 "created_at": _fmt_time(user["created_at"]),
             },
-            "posts": [_row_to_dict(r, r["reply_count"]) for r in rows],
+            "posts": [_row_to_dict(r, r["reply_count"], for_list=True) for r in rows],
         })
     finally:
         conn.close()
