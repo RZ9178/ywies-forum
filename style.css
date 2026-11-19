@@ -1790,3 +1790,34 @@ input[readonly] {
 @media (max-width: 768px) {
     .detail-grid.no-image { grid-template-columns: 1fr; }
 }
+
+/* 字体预览模式（仅 ?font=xxx 时出现） */
+.font-preview-badge {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 170;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: rgba(17, 24, 39, 0.92);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 12px;
+    box-shadow: 0 8px 24px var(--shadow-dialog);
+    white-space: nowrap;
+}
+.font-preview-badge select {
+    padding: 3px 8px;
+    border: none;
+    border-radius: 999px;
+    background: #fff;
+    color: #111827;
+    font-size: 12px;
+    font-family: var(--font-sans);
+}
+@media (max-width: 760px) {
+    .font-preview-badge { bottom: 76px; }
+}
