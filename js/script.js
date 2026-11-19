@@ -32,6 +32,10 @@ let viewerDownloadName = 'image.jpg';
 let currentChatUser = '';
 let messageLockedBody = false;
 
+function T(key, vars) {
+    return window.I18n ? I18n.t(key, vars) : key;
+}
+
 const K_READ = 'ywies_read';
 const K_BOOKMARK = 'ywies_bookmarked';
 const K_FOLLOW = 'ywies_following';
@@ -88,6 +92,13 @@ window.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('resize', scheduleMasonry);
     window.addEventListener('load', scheduleMasonry);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleMasonry);
+    document.addEventListener('i18n:change', function () {
+        renderTags(allTags);
+        render();
+        renderTagPicker();
+        fetchConfig();
+        if (currentPost) renderDetail();
+    });
 });
 
 async function refreshSite() {
@@ -109,7 +120,7 @@ function initAuth() {
     if (logged) {
         const nameEl = document.getElementById('userName');
         nameEl.textContent = Auth.user.username;
-        nameEl.title = '查看我的主页';
+        nameEl.title = T('profileView');
         nameEl.addEventListener('click', function () {
             if (Auth.user) openProfile(Auth.user.username);
         });
@@ -207,7 +218,7 @@ function showPostsLoading() {
     const empty = document.getElementById('emptyState');
     if (!empty) return;
     empty.classList.remove('retry');
-    empty.textContent = '帖子加载中...';
+    empty.textContent = T('loadingPosts');
     empty.hidden = false;
 }
 
@@ -215,7 +226,7 @@ function showPostsError() {
     const empty = document.getElementById('emptyState');
     if (!empty) return;
     empty.classList.add('retry');
-    empty.textContent = '帖子加载失败，点这里重试';
+    empty.textContent = T('loadFailedRetry');
     empty.hidden = false;
 }
 
@@ -242,7 +253,7 @@ async function fetchTags() {
 // ---------- 标签栏 ----------
 function renderTagBar() {
     const bar = document.getElementById('tagBar');
-    let html = '<button class="tag-pill' + (currentTag === '' ? ' active' : '') + '" data-tag="">全部</button>';
+    let html = '<button class="tag-pill' + (currentTag === '' ? ' active' : '') + '" data-tag="">' + T('all') + '</button>';
     allTags.forEach(function (t) {
         const name = t.name;
         html += '<button class="tag-pill' + (currentTag === name ? ' active' : '') + '" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</button>';
@@ -296,8 +307,8 @@ function renderList(list) {
         if (!allPosts.length && postsLoading) { showPostsLoading(); return; }
         empty.classList.remove('retry');
         empty.textContent = (searchQuery || currentTag)
-            ? '没有找到符合条件的帖子'
-            : '这里还没有帖子，点右上角「发帖」发第一条吧';
+            ? T('emptyFiltered')
+            : T('emptyPosts');
         empty.hidden = false;
         wrap.classList.remove('masonry');
         wrap.style.height = '';
@@ -306,26 +317,21 @@ function renderList(list) {
     empty.hidden = true;
 
     const read = getRead();
-    const bm = getBookmarks();
 
     list.forEach(function (p) {
         const isRead = read.indexOf(p.id) !== -1;
-        const isBm = bm.indexOf(p.id) !== -1;
         const firstTag = (p.tags || '').split(',')[0].trim();
         const cover = getPostImages(p)[0] || '';
 
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-        const starBtn = '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
-                '<svg class="icon" aria-hidden="true"><use href="#i-star"></use></svg>' +
-            '</button>';
         const metaHtml = '<div class="card-meta">' +
-                '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a>' +
+                '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || T('anonymous')) + '</a>' +
                 '<span class="card-time">' + formatTime(p.created_at) + '</span>' +
             '</div>' +
             '<div class="card-stats">' +
-                '<span title="点赞"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
-                '<span title="浏览"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
-                '<span title="回复"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
+                '<span title="' + T('tooltipLike') + '"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
+                '<span title="' + T('tooltipViews') + '"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
+                '<span title="' + T('tooltipReplies') + '"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
             '</div>';
 
         const card = document.createElement('article');
@@ -337,12 +343,11 @@ function renderList(list) {
             card.innerHTML =
                 '<div class="card-cover">' +
                     '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
-                    (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
-                    starBtn +
+                    ( !isRead ? '<span class="card-unread" title="' + T('tooltipUnread') + '"></span>' : '') +
                     (firstTag ? '<span class="post-tag card-tag">' + escapeHtml(firstTag) + '</span>' : '') +
                 '</div>' +
                 '<div class="card-body">' +
-                    '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
+                    '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
                     metaHtml +
                 '</div>';
         } else {
@@ -350,11 +355,10 @@ function renderList(list) {
             card.innerHTML =
                 '<div class="card-body">' +
                     '<div class="card-text-top">' +
-                        (!isRead ? '<span class="card-unread-inline" title="未读"></span>' : '') +
+                        ( !isRead ? '<span class="card-unread-inline" title="' + T('tooltipUnread') + '"></span>' : '') +
                         (firstTag ? '<span class="post-tag card-tag card-tag-inline">' + escapeHtml(firstTag) + '</span>' : '') +
-                        starBtn +
                     '</div>' +
-                    '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
+                    '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
                     (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
                     metaHtml +
                 '</div>';
@@ -373,7 +377,7 @@ function renderList(list) {
         }
 
         card.addEventListener('click', function (e) {
-            if (e.target.closest('.star-btn') || e.target.closest('.card-author')) return;
+            if (e.target.closest('.card-author')) return;
             markRead(p.id);
             openDetail(p.id);
         });
@@ -384,11 +388,6 @@ function renderList(list) {
                 markRead(p.id);
                 openDetail(p.id);
             }
-        });
-        const star = card.querySelector('.card-star');
-        if (star) star.addEventListener('click', function (e) {
-            e.stopPropagation();
-            toggleBookmark(p.id);
         });
         const authorLink = card.querySelector('.card-author');
         if (authorLink) authorLink.addEventListener('click', function (e) {
@@ -462,7 +461,7 @@ function bindBell() {
     document.getElementById('bellBtn').addEventListener('click', async function () {
         // 未登录绝不请求 /api/notifs：Auth 收到 401 会把匿名访客踢去登录页
         if (!Auth.isLoggedIn()) {
-            alert('请先登录再查看通知');
+            alert(T('loginToNotifs'));
             return;
         }
         document.getElementById('notifModal').hidden = false;
@@ -482,22 +481,22 @@ function bindBell() {
 async function renderNotifs() {
     const list = document.getElementById('notifList');
     if (!Auth.isLoggedIn()) {
-        list.innerHTML = '<div class="notif-item"><div class="notif-text">请先登录后查看通知</div></div>';
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">' + T('notifLogin') + '</div></div>';
         return;
     }
-    list.innerHTML = '<div class="notif-item"><div class="notif-text">加载中...</div></div>';
+    list.innerHTML = '<div class="notif-item"><div class="notif-text">' + T('notifLoading') + '</div></div>';
     let data;
     try {
         const res = await Auth.get('/api/notifs');
         if (!res.ok) throw new Error('HTTP ' + res.status);
         data = await res.json();
     } catch (e) {
-        list.innerHTML = '<div class="notif-item"><div class="notif-text">通知加载失败</div></div>';
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">' + T('notifFailed') + '</div></div>';
         return;
     }
     const notifs = data.notifs || [];
     if (!notifs.length) {
-        list.innerHTML = '<div class="notif-item"><div class="notif-text">暂无通知</div></div>';
+        list.innerHTML = '<div class="notif-item"><div class="notif-text">' + T('notifEmpty') + '</div></div>';
         return;
     }
     list.innerHTML = notifs.map(function (n) {
@@ -562,7 +561,7 @@ function bindPostModal() {
 
 function openPostModal() {
     if (!Auth.isLoggedIn()) {
-        alert('请先登录再发帖');
+        alert(T('loginToPost'));
         window.location.href = 'login.html';
         return;
     }
@@ -591,14 +590,14 @@ function closePostModal() {
 async function handleImageFiles(fileList) {
     const files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
-    if (imageProcessing) { alert('图片还在上传，请稍候'); return; }
+    if (imageProcessing) { alert(T('uploadPending')); return; }
     const room = maxPostImages - uploadedImages.length;
     if (room <= 0) {
-        alert('最多上传 ' + maxPostImages + ' 张图片');
+        alert(T('maxImages', { n: maxPostImages }));
         return;
     }
     if (files.length > room) {
-        alert('最多上传 ' + maxPostImages + ' 张，已忽略多出的 ' + (files.length - room) + ' 张');
+        alert(T('maxImagesIgnored', { n: maxPostImages, extra: files.length - room }));
     }
     const todo = files.slice(0, room);
     const taskId = imageTaskId;
@@ -606,13 +605,13 @@ async function handleImageFiles(fileList) {
     for (let i = 0; i < todo.length; i++) {
         if (taskId !== imageTaskId) break;
         const file = todo[i];
-        if (!file.type || !file.type.startsWith('image/')) { alert('请上传图片文件'); continue; }
-        if (file.size > MAX_IMAGE_BYTES) { alert('图片不能超过 10MB：' + (file.name || '')); continue; }
-        setUploadHint('正在处理第 ' + (i + 1) + ' / ' + todo.length + ' 张...');
+        if (!file.type || !file.type.startsWith('image/')) { alert(T('imageOnly')); continue; }
+        if (file.size > MAX_IMAGE_BYTES) { alert(T('imageTooLarge', { name: file.name || '' })); continue; }
+        setUploadHint(T('uploadProcessing', { i: i + 1, n: todo.length }));
         try {
             const blob = await prepareImageBlob(file);
             if (taskId !== imageTaskId) break;
-            setUploadHint('正在上传第 ' + (i + 1) + ' / ' + todo.length + ' 张...');
+            setUploadHint(T('uploadUploading', { i: i + 1, n: todo.length }));
             const url = await uploadImageBlob(blob, file.name);
             if (taskId !== imageTaskId) break;
             if (uploadedImages.length >= maxPostImages) break;
@@ -620,12 +619,12 @@ async function handleImageFiles(fileList) {
             renderImagePreviews();
         } catch (e) {
             if (taskId !== imageTaskId) break;
-            alert('图片上传失败：' + e.message);
+            alert(T('uploadFailed', { error: e.message }));
         }
     }
     if (taskId === imageTaskId) {
         imageProcessing = false;
-        setUploadHint(uploadedImages.length ? ('已上传 ' + uploadedImages.length + ' / ' + maxPostImages + ' 张') : '');
+        setUploadHint(uploadedImages.length ? T('uploadedCount', { i: uploadedImages.length, n: maxPostImages }) : '');
     }
 }
 
@@ -732,7 +731,7 @@ function renderImagePreviews() {
     wrap.innerHTML = uploadedImages.map(function (u, i) {
         return '<div class="image-preview-item">' +
             '<img src="' + escapeHtml(u) + '" alt="图片 ' + (i + 1) + '">' +
-            '<button type="button" class="image-remove" data-i="' + i + '" title="移除">×</button>' +
+            '<button type="button" class="image-remove" data-i="' + i + '" title="' + T('remove') + '">×</button>' +
         '</div>';
     }).join('');
     wrap.querySelectorAll('.image-remove').forEach(function (btn) {
@@ -740,7 +739,7 @@ function renderImagePreviews() {
             e.stopPropagation();
             uploadedImages.splice(Number(this.getAttribute('data-i')), 1);
             renderImagePreviews();
-            setUploadHint(uploadedImages.length ? ('已上传 ' + uploadedImages.length + ' / ' + maxPostImages + ' 张') : '');
+            setUploadHint(uploadedImages.length ? T('uploadedCount', { i: uploadedImages.length, n: maxPostImages }) : '');
         });
     });
 }
@@ -759,12 +758,12 @@ async function fetchConfig() {
             maxPostImages = cfg.max_post_images;
             const label = document.getElementById('imageLabel');
             if (label) {
-                label.textContent = '图片（可选，Lv.' + (cfg.level || 1) + ' 最多 ' + maxPostImages + ' 张，单张 ≤10MB）';
+                label.textContent = T('postImageLabelLevel', { level: cfg.level || 1, n: maxPostImages });
             }
         }
         const ph = document.getElementById('uploadPlaceholder');
         if (ph && cfg && cfg.upload_enabled === false) {
-            ph.textContent = '图片上传暂未配置，可先发纯文字';
+            ph.textContent = T('postImageNotConfigured');
         }
     } catch (e) {}
 }
@@ -783,7 +782,7 @@ function renderTagPicker() {
         }
     });
     if (!allTags.length && !selectedTags.length) {
-        html = '<span style="color:var(--text-dim);font-size:13px;">暂无标签，在下方输入框输入新标签</span>';
+        html = '<span style="color:var(--text-dim);font-size:13px;">' + T('postNoTags') + '</span>';
     }
     picker.innerHTML = html;
     picker.querySelectorAll('.tag-option').forEach(function (el) {
@@ -799,13 +798,13 @@ function renderTagPicker() {
 async function submitPost() {
     const title = document.getElementById('postTitle').value.trim();
     const content = document.getElementById('postContent').value.trim();
-    if (!title) { alert('请输入标题'); return; }
-    if (!content) { alert('请输入内容'); return; }
-    if (imageProcessing) { alert('图片还在上传，请稍候'); return; }
+    if (!title) { alert(T('enterTitle')); return; }
+    if (!content) { alert(T('enterContent')); return; }
+    if (imageProcessing) { alert(T('uploadPending')); return; }
 
     const btn = document.getElementById('submitPostBtn');
     btn.disabled = true;
-    btn.textContent = '发布中...';
+    btn.textContent = T('postPublishing');
 
     try {
         const res = await Auth.post(API, {
@@ -814,17 +813,17 @@ async function submitPost() {
         });
         if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.error || '发布失败');
+            throw new Error(err.error || T('publishFailed', { error: '' }));
         }
         closePostModal();
         await fetchConfig();
         await fetchPosts();
         await fetchTags();
     } catch (e) {
-        alert('发布失败：' + e.message);
+        alert(T('publishFailed', { error: e.message }));
     } finally {
         btn.disabled = false;
-        btn.textContent = '发布帖子';
+        btn.textContent = T('postSubmit');
     }
 }
 
@@ -853,7 +852,7 @@ function bindDetailModal() {
         const btn = this;
         if (btn.disabled) return;
         if (!Auth.isLoggedIn()) {
-            alert('请先登录再点赞');
+            alert(T('loginToLike'));
             window.location.href = 'login.html';
             return;
         }
@@ -867,7 +866,7 @@ function bindDetailModal() {
             const res = await Auth.post(API + '/' + currentPost.id + '/like', { on: on });
             if (!res.ok) {
                 const err = await res.json().catch(function () { return {}; });
-                throw new Error(err.error || '点赞失败');
+                throw new Error(err.error || T('likeFailed'));
             }
             const data = await res.json();
             currentPost.likes = data.likes;
@@ -881,7 +880,7 @@ function bindDetailModal() {
             localStorage.setItem(K_LIKED, JSON.stringify(liked));
             updateFooterButtons();
         } catch (e) {
-            alert('点赞失败：' + e.message);
+            alert(T('likeFailed') + ' ' + e.message);
         } finally {
             btn.disabled = false;
         }
@@ -891,7 +890,7 @@ function bindDetailModal() {
         const btn = this;
         if (btn.disabled) return;
         if (!Auth.isLoggedIn()) {
-            alert('请先登录再投硬币');
+            alert(T('loginToCoin'));
             window.location.href = 'login.html';
             return;
         }
@@ -899,17 +898,17 @@ function bindDetailModal() {
             ? !!currentPost.coined
             : (getCoined().indexOf(currentPost.id) !== -1);
         if (alreadyCoined) {
-            alert('投币后不能撤回');
+            alert(T('coinNoWithdraw'));
             updateFooterButtons();
             return;
         }
-        if (!confirm('投币后不能撤回，确定投币吗？')) return;
+        if (!confirm(T('coinConfirm'))) return;
         btn.disabled = true;
         try {
             const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: true });
             if (!res.ok) {
                 const err = await res.json().catch(function () { return {}; });
-                throw new Error(err.error || '投币失败');
+                throw new Error(err.error || T('coinFailed'));
             }
             const data = await res.json();
             currentPost.coins = data.coins;
@@ -919,7 +918,7 @@ function bindDetailModal() {
             localStorage.setItem(K_COINED, JSON.stringify(coined));
             updateFooterButtons();
         } catch (e) {
-            alert('投币失败：' + e.message);
+            alert(T('coinFailed') + ' ' + e.message);
         } finally {
             btn.disabled = !!(currentPost && currentPost.coined);
         }
@@ -954,7 +953,7 @@ function bindDetailModal() {
         });
         moreReport.addEventListener('click', function () {
             closeDetailMoreMenu();
-            alert('举报功能还在开发中，之后开放');
+            alert(T('reportSoon'));
         });
         document.addEventListener('click', function (e) {
             if (moreMenu.hidden) return;
@@ -1010,9 +1009,9 @@ function renderDetail() {
     renderDetailImages();
     const detailGrid = document.querySelector('.detail-grid');
     if (detailGrid) detailGrid.classList.toggle('no-image', !detailImages.length);
-    document.getElementById('detailAuthorName').textContent = p.author || '匿名';
+    document.getElementById('detailAuthorName').textContent = p.author || T('anonymous');
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
-    document.getElementById('detailTitle').textContent = p.title || '无标题';
+    document.getElementById('detailTitle').textContent = p.title || T('untitled');
     document.getElementById('detailContent').textContent = p.content || '';
     document.getElementById('detailTime').textContent = formatTime(p.created_at);
     document.getElementById('commentCount').textContent = allComments.length;
@@ -1025,12 +1024,12 @@ function renderDetail() {
 
 async function deleteCurrentPost() {
     if (!currentPost) return;
-    if (!confirm('确定删除这条帖子？')) return;
+    if (!confirm(T('deletePostConfirm'))) return;
     try {
         await Auth.del(API + '/' + currentPost.id);
         closeDetail();
         await fetchPosts();
-    } catch (e) { alert('删除失败：' + e.message); }
+    } catch (e) { alert(T('deleteFailed') + ' ' + e.message); }
 }
 
 function getCommentLiked() {
@@ -1046,12 +1045,12 @@ function resetReplyTarget() {
     const bar = document.getElementById('replyBar');
     if (bar) bar.hidden = true;
     const input = document.getElementById('commentInput');
-    if (input) input.placeholder = '说点什么...';
+    if (input) input.placeholder = T('commentPlaceholder');
 }
 
 function startReply(comment) {
     if (!Auth.isLoggedIn()) {
-        alert('请先登录再回复');
+        alert(T('loginToReply'));
         window.location.href = 'login.html';
         return;
     }
@@ -1062,7 +1061,7 @@ function startReply(comment) {
     if (bar) bar.hidden = false;
     if (name) name.textContent = comment.author || '';
     if (input) {
-        input.placeholder = '回复 @' + (comment.author || '') + '...';
+        input.placeholder = T('replyTo', { name: comment.author || '' }) + '...';
         input.focus();
     }
 }
@@ -1080,18 +1079,18 @@ function commentHtml(c, opts) {
         '<div class="comment-head">' +
             '<div class="comment-avatar' + (isReply ? ' small' : '') + '"></div>' +
             '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
-            (isAuthor ? '<span class="comment-author-tag">楼主</span>' : '') +
-            (isReply && c.reply_to ? '<span class="comment-reply-to">回复 @' + escapeHtml(c.reply_to) + '</span>' : '') +
+            (isAuthor ? '<span class="comment-author-tag">' + T('op') + '</span>' : '') +
+            (isReply && c.reply_to ? '<span class="comment-reply-to">' + escapeHtml(T('replyTo', { name: c.reply_to })) + '</span>' : '') +
             (!isReply ? '<span class="comment-floor">' + (opts.floor || 0) + 'F</span>' : '') +
-            (canDel ? '<button class="comment-del" data-cid="' + c.id + '" title="删除">删</button>' : '') +
+            (canDel ? '<button class="comment-del" data-cid="' + c.id + '" title="' + T('delete') + '">' + T('deleteShort') + '</button>' : '') +
         '</div>' +
         '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
         '<div class="comment-actions">' +
-            '<button type="button" class="comment-action comment-like' + (liked ? ' active' : '') + '" data-cid="' + c.id + '" title="点赞">' +
+            '<button type="button" class="comment-action comment-like' + (liked ? ' active' : '') + '" data-cid="' + c.id + '" title="' + T('like') + '">' +
                 '<svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg><span>' + (c.likes || 0) + '</span>' +
             '</button>' +
-            '<button type="button" class="comment-action comment-reply-btn" data-cid="' + c.id + '" title="回复">' +
-                '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>回复' +
+            '<button type="button" class="comment-action comment-reply-btn" data-cid="' + c.id + '" title="' + T('reply') + '">' +
+                '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + T('reply') +
             '</button>' +
             '<span class="comment-time">' + formatTime(c.created_at) + '</span>' +
         '</div>' +
@@ -1101,7 +1100,7 @@ function commentHtml(c, opts) {
 function renderComments() {
     const list = document.getElementById('commentsList');
     if (!allComments.length) {
-        list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;">还没有评论，来说点什么吧</div>';
+        list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;">' + T('commentsEmpty') + '</div>';
         return;
     }
     const byId = {};
@@ -1132,7 +1131,7 @@ function renderComments() {
                 }).join('');
             if (replies.length > 1) {
                 html += '<button type="button" class="comment-replies-toggle" data-root="' + root.id + '">' +
-                    (expanded ? '收起回复' : '展开其余 ' + (replies.length - 1) + ' 条回复') +
+                    (expanded ? T('collapseReplies') : T('showMoreReplies', { n: replies.length - 1 })) +
                 '</button>';
             }
             html += '</div>';
@@ -1149,21 +1148,21 @@ function bindCommentActions() {
             const cid = Number(this.getAttribute('data-cid'));
             const replies = allComments.filter(function (c) { return c.parent_id === cid; });
             const msg = replies.length
-                ? '删除这条评论？其下 ' + replies.length + ' 条回复也会一起删除'
-                : '删除这条评论？';
+                ? T('deleteCommentRepliesConfirm', { n: replies.length })
+                : T('deleteCommentConfirm');
             if (!confirm(msg)) return;
             try {
                 await Auth.del(API + '/' + currentPost.id + '/comments/' + cid);
                 await reloadComments();
             } catch (e) {
-                alert('删除失败：' + e.message);
+                alert(T('deleteFailed') + ' ' + e.message);
             }
         });
     });
     list.querySelectorAll('.comment-like').forEach(function (btn) {
         btn.addEventListener('click', async function () {
             if (!Auth.isLoggedIn()) {
-                alert('请先登录再点赞');
+                alert(T('loginToLike'));
                 window.location.href = 'login.html';
                 return;
             }
@@ -1179,7 +1178,7 @@ function bindCommentActions() {
                 const res = await Auth.post(API + '/' + currentPost.id + '/comments/' + cid + '/like', { on: on });
                 if (!res.ok) {
                     const err = await res.json().catch(function () { return {}; });
-                    throw new Error(err.error || '点赞失败');
+                    throw new Error(err.error || T('likeFailed'));
                 }
                 const data = await res.json();
                 c.likes = data.likes;
@@ -1193,7 +1192,7 @@ function bindCommentActions() {
                 const span = this.querySelector('span');
                 if (span) span.textContent = data.likes;
             } catch (e) {
-                alert('点赞失败：' + e.message);
+                alert(T('likeFailed') + ' ' + e.message);
             } finally {
                 this.disabled = false;
             }
@@ -1233,7 +1232,7 @@ async function reloadComments() {
 
 async function submitComment() {
     if (!Auth.isLoggedIn()) {
-        alert('请先登录再评论');
+        alert(T('loginToComment'));
         window.location.href = 'login.html';
         return;
     }
@@ -1251,7 +1250,7 @@ async function submitComment() {
         const res = await Auth.post(API + '/' + currentPost.id + '/comments', payload);
         if (!res.ok) {
             const err = await res.json();
-            throw new Error(err.error || '评论失败');
+            throw new Error(err.error || T('commentFailed'));
         }
         input.value = '';
         resetReplyTarget();
@@ -1260,7 +1259,7 @@ async function submitComment() {
         const list = document.getElementById('commentsList');
         if (list) list.scrollTop = commentSort === 'latest' ? 0 : list.scrollHeight;
     } catch (e) {
-        alert('评论失败：' + e.message);
+        alert(T('commentFailed') + ' ' + e.message);
     }
 }
 
@@ -1279,7 +1278,7 @@ function renderDetailImages() {
         return;
     }
     if (detailImageIndex >= detailImages.length) detailImageIndex = 0;
-    box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="帖子图片" decoding="async">';
+    box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="' + T('imageAlt') + '" decoding="async">';
     if (!thumbs) return;
     if (detailImages.length <= 1) {
         thumbs.hidden = true;
@@ -1289,7 +1288,7 @@ function renderDetailImages() {
     thumbs.hidden = false;
     thumbs.innerHTML = detailImages.map(function (u, i) {
         return '<button type="button" class="detail-thumb' + (i === detailImageIndex ? ' active' : '') +
-            '" data-i="' + i + '" title="第 ' + (i + 1) + ' 张">' +
+            '" data-i="' + i + '" title="' + T('imageNumber', { n: i + 1 }) + '">' +
             '<img src="' + escapeHtml(u) + '" alt="" loading="lazy" decoding="async"></button>';
     }).join('');
     thumbs.querySelectorAll('.detail-thumb').forEach(function (btn) {
@@ -1321,14 +1320,14 @@ async function openProfile(username) {
         if (profileLockedBody) document.body.style.overflow = 'hidden';
     }
     modal.hidden = false;
-    body.innerHTML = '<div class="profile-empty">加载中...</div>';
+    body.innerHTML = '<div class="profile-empty">' + T('profileLoading') + '</div>';
     try {
         const res = await Auth.get('/api/users/' + encodeURIComponent(username));
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         renderProfile(data);
     } catch (e) {
-        body.innerHTML = '<div class="profile-empty">用户主页加载失败</div>';
+        body.innerHTML = '<div class="profile-empty">' + T('profileFailed') + '</div>';
     }
 }
 
@@ -1350,19 +1349,19 @@ function renderProfile(data) {
     let html = '<div class="profile-head">' +
         '<div class="profile-avatar">' + escapeHtml(initial) + '</div>' +
         '<div class="profile-head-info">' +
-            '<div class="profile-name">' + escapeHtml(u.username || '未知用户') +
-                (u.is_admin ? '<span class="profile-badge">管理员</span>' : '') +
+            '<div class="profile-name">' + escapeHtml(u.username || T('profileUnknown')) +
+                (u.is_admin ? '<span class="profile-badge">' + T('profileAdmin') + '</span>' : '') +
                 (u.username !== (Auth.user && Auth.user.username)
-                    ? '<button type="button" class="profile-msg" data-user="' + escapeHtml(u.username) + '">私信</button>'
+                    ? '<button type="button" class="profile-msg" data-user="' + escapeHtml(u.username) + '">' + T('profileMessage') + '</button>'
                     : '') + '</div>' +
-            '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' + (u.post_count || 0) +
-                ' 帖 · 加入于 ' + formatTime(u.created_at) + '</div>' +
+            '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' +
+                T('profilePostsJoined', { n: (u.post_count || 0), date: formatTime(u.created_at) }) + '</div>' +
         '</div>' +
     '</div>';
     if (!posts.length) {
-        html += '<div class="profile-empty">还没有发过帖子</div>';
+        html += '<div class="profile-empty">' + T('profileNoPosts') + '</div>';
     } else {
-        html += '<div class="profile-section-title">最近发帖</div><div class="profile-posts">';
+        html += '<div class="profile-section-title">' + T('profileRecent') + '</div><div class="profile-posts">';
         posts.forEach(function (p) {
             const cover = getPostImages(p)[0] || '';
             html += '<div class="profile-post" data-id="' + p.id + '">' +
@@ -1371,7 +1370,7 @@ function renderProfile(data) {
                            : '<svg class="icon" aria-hidden="true"><use href="#i-image"></use></svg>') +
                 '</div>' +
                 '<div class="profile-post-main">' +
-                    '<div class="profile-post-title">' + escapeHtml(p.title || '无标题') + '</div>' +
+                    '<div class="profile-post-title">' + escapeHtml(p.title || T('untitled')) + '</div>' +
                     '<div class="profile-post-meta">' +
                         '<svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) +
                         '<svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) +
@@ -1437,7 +1436,7 @@ async function refreshMsgDot() {
 
 async function openMessageInbox() {
     if (!Auth.isLoggedIn()) {
-        alert('请先登录再查看私信');
+        alert(T('loginToMessages'));
         window.location.href = 'login.html';
         return;
     }
@@ -1449,10 +1448,10 @@ async function openMessageInbox() {
     }
     modal.hidden = false;
     currentChatUser = '';
-    document.getElementById('messageTitle').textContent = '私信';
+    document.getElementById('messageTitle').textContent = T('messagesTitle');
     document.getElementById('messageCompose').hidden = true;
     const body = document.getElementById('messageBody');
-    body.innerHTML = '<div class="message-empty">加载中...</div>';
+    body.innerHTML = '<div class="message-empty">' + T('msgLoading') + '</div>';
     try {
         const res = await Auth.get('/api/messages');
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1460,7 +1459,7 @@ async function openMessageInbox() {
         renderInbox(data);
         updateMsgDot((data.unread || 0) > 0);
     } catch (e) {
-        body.innerHTML = '<div class="message-empty">私信加载失败</div>';
+        body.innerHTML = '<div class="message-empty">' + T('msgFailed') + '</div>';
     }
 }
 
@@ -1468,7 +1467,7 @@ function renderInbox(data) {
     const body = document.getElementById('messageBody');
     const list = data.conversations || [];
     if (!list.length) {
-        body.innerHTML = '<div class="message-empty">还没有私信。点开别人的主页，发第一条吧。</div>';
+        body.innerHTML = '<div class="message-empty">' + T('msgEmpty') + '</div>';
         return;
     }
     body.innerHTML = list.map(function (c) {
@@ -1492,7 +1491,7 @@ function renderInbox(data) {
 
 async function openMessageThread(username) {
     if (!Auth.isLoggedIn()) {
-        alert('请先登录再查看私信');
+        alert(T('loginToMessages'));
         window.location.href = 'login.html';
         return;
     }
@@ -1505,9 +1504,9 @@ async function openMessageThread(username) {
     }
     modal.hidden = false;
     currentChatUser = username;
-    document.getElementById('messageTitle').textContent = '与 ' + username + ' 的私信';
+    document.getElementById('messageTitle').textContent = T('msgWith', { name: username });
     const body = document.getElementById('messageBody');
-    body.innerHTML = '<div class="message-empty">加载中...</div>';
+    body.innerHTML = '<div class="message-empty">' + T('msgLoading') + '</div>';
     try {
         const res = await Auth.get('/api/messages/' + encodeURIComponent(username));
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1516,7 +1515,7 @@ async function openMessageThread(username) {
         document.getElementById('messageCompose').hidden = false;
         refreshMsgDot();
     } catch (e) {
-        body.innerHTML = '<div class="message-empty">私信加载失败</div>';
+        body.innerHTML = '<div class="message-empty">' + T('msgFailed') + '</div>';
         document.getElementById('messageCompose').hidden = true;
     }
 }
@@ -1524,9 +1523,9 @@ async function openMessageThread(username) {
 function renderThread(data) {
     const body = document.getElementById('messageBody');
     const msgs = data.messages || [];
-    let html = '<button type="button" class="msg-back" id="msgBack">‹ 返回私信列表</button>';
+    let html = '<button type="button" class="msg-back" id="msgBack">' + T('msgBack') + '</button>';
     if (!msgs.length) {
-        html += '<div class="message-empty">还没有消息，打个招呼吧。</div>';
+        html += '<div class="message-empty">' + T('msgThreadEmpty') + '</div>';
     } else {
         html += '<div class="msg-thread">' + msgs.map(function (m) {
             const mine = Auth.user && m.sender === Auth.user.username;
@@ -1554,12 +1553,12 @@ async function sendMessage() {
         const res = await Auth.post('/api/messages/' + encodeURIComponent(currentChatUser), { content: text });
         if (!res.ok) {
             const err = await res.json().catch(function () { return {}; });
-            throw new Error(err.error || '发送失败');
+            throw new Error(err.error || T('sendFailed'));
         }
         input.value = '';
         await openMessageThread(currentChatUser);
     } catch (e) {
-        alert('发送失败：' + e.message);
+        alert(T('sendFailed') + ' ' + e.message);
     } finally {
         btn.disabled = false;
     }
@@ -1632,7 +1631,7 @@ function renderViewerImage() {
     const next = document.getElementById('imageViewerNext');
     if (!img || !count || !prev || !next) return;
     img.src = src;
-    img.alt = (currentPost && currentPost.title) ? currentPost.title : '帖子图片';
+    img.alt = (currentPost && currentPost.title) ? currentPost.title : T('imageAlt');
     count.textContent = viewerImages.length > 1 ? (viewerIndex + 1) + ' / ' + viewerImages.length : '';
     prev.hidden = viewerImages.length <= 1;
     next.hidden = viewerImages.length <= 1;
@@ -1704,7 +1703,7 @@ function updateFooterButtons() {
     likeBtn.classList.toggle('active', liked);
     coinBtn.classList.toggle('active', coined);
     coinBtn.disabled = coined;
-    coinBtn.title = coined ? '已投币（不可撤回）' : '硬币（投出后不可撤回）';
+    coinBtn.title = coined ? T('coinedTitle') : T('coinTitle');
     document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
 }
 

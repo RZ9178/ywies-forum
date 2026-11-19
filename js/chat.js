@@ -40,7 +40,7 @@ function sendMessage() {
     // 发出去的格式（找后端组确认）：{"message": "...", "role": "study"}
     // 返回的格式（找后端组确认）：{"reply": "..."}
     setTimeout(function() {
-        addMessage('（AI回复即将接入，等后端组做好接口就能用了）', 'ai');
+        addMessage(window.I18n ? I18n.t('chatSoon') : '（AI回复即将接入，等后端组做好接口就能用了）', 'ai');
     }, 500);
 }
 

@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YWIES 论坛</title>
-    <link rel="stylesheet" href="style.css?v=20261119i">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/misans@5.0.0/lib/Normal/MiSansVF.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="style.css?v=20261119j">
 </head>
 <body>
 
@@ -26,28 +28,29 @@
         <div class="topbar-inner">
             <div class="brand">
                 <img src="school-badge.png" class="brand-logo" alt="校徽">
-                <span class="brand-name">YWIES 论坛</span>
+                <span class="brand-name" data-i18n="appName">YWIES 论坛</span>
             </div>
 
             <div class="search-box">
-                <input type="text" id="searchInput" placeholder="搜索帖子...">
+                <input type="text" id="searchInput" placeholder="搜索帖子..." data-i18n-placeholder="searchPlaceholder">
             </div>
 
             <div class="topbar-actions" id="topbarActions">
-                <button class="bell-btn" id="msgBtn" title="私信"><svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg><span class="bell-dot" id="msgDot" hidden></span></button>
-                <button class="bell-btn" id="bellBtn" title="通知">
+                <button class="bell-btn" id="msgBtn" title="私信" data-i18n-title="messagesTitle"><svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg><span class="bell-dot" id="msgDot" hidden></span></button>
+                <button class="bell-btn" id="bellBtn" title="通知" data-i18n-title="notificationsTitle">
                     🔔
                     <span class="bell-dot" id="bellDot" hidden></span>
                 </button>
-                <button class="btn-post" id="openPostBtn">发帖</button>
+                <button class="btn lang-btn js-lang-toggle" id="langBtn" type="button" title="切换语言">EN</button>
+                <button class="btn-post" id="openPostBtn" data-i18n="newPost">发帖</button>
                 <!-- 未登录时显示登录/注册 -->
-                <a href="login.html" class="btn" id="loginBtn">登录</a>
-                <a href="register.html" class="btn" id="registerBtn">注册</a>
+                <a href="login.html" class="btn" id="loginBtn" data-i18n="login">登录</a>
+                <a href="register.html" class="btn" id="registerBtn" data-i18n="register">注册</a>
                 <!-- 登录后显示用户名和后台入口 -->
                 <span id="userArea" hidden>
                     <span class="user-name" id="userName"></span>
-                    <a href="admin.html" class="btn" id="adminBtn" hidden>后台</a>
-                    <button class="btn" id="logoutBtn">退出</button>
+                    <a href="admin.html" class="btn" id="adminBtn" hidden data-i18n="admin">后台</a>
+                    <button class="btn" id="logoutBtn" data-i18n="logout">退出</button>
                 </span>
             </div>
         </div>
@@ -56,31 +59,31 @@
     <!-- Tab 导航 -->
     <nav class="tab-bar">
         <div class="tab-inner">
-            <button class="tab active" data-tab="latest">最新</button>
-            <button class="tab" data-tab="hot">热门</button>
-            <button class="tab" data-tab="unread">未看</button>
-            <button class="tab" data-tab="followed">关注</button>
-            <button class="tab" data-tab="bookmarked">收藏</button>
-            <button class="tab" data-tab="all">全部</button>
+            <button class="tab active" data-tab="latest" data-i18n="tabLatest">最新</button>
+            <button class="tab" data-tab="hot" data-i18n="tabHot">热门</button>
+            <button class="tab" data-tab="unread" data-i18n="tabUnread">未看</button>
+            <button class="tab" data-tab="followed" data-i18n="tabFollowed">关注</button>
+            <button class="tab" data-tab="bookmarked" data-i18n="tabBookmarked">收藏</button>
+            <button class="tab" data-tab="all" data-i18n="tabAll">全部</button>
         </div>
     </nav>
 
     <!-- 标签筛选（JS 动态加载） -->
     <div class="tag-bar" id="tagBar">
-        <button class="tag-pill active" data-tag="">全部</button>
+        <button class="tag-pill active" data-tag="" data-i18n="all">全部</button>
     </div>
 
     <!-- 帖子列表 -->
     <main class="list-wrap">
         <div class="list-header">
-            <span class="col-main">标题</span>
-            <span class="col-author">作者</span>
-            <span class="col-replies">回复</span>
-            <span class="col-views">浏览</span>
-            <span class="col-time">最后回复</span>
+            <span class="col-main" data-i18n="listTitle">标题</span>
+            <span class="col-author" data-i18n="listAuthor">作者</span>
+            <span class="col-replies" data-i18n="listReplies">回复</span>
+            <span class="col-views" data-i18n="listViews">浏览</span>
+            <span class="col-time" data-i18n="listTime">最后回复</span>
         </div>
         <div id="postList" class="post-grid"></div>
-        <div class="empty-state" id="emptyState" hidden>
+        <div class="empty-state" id="emptyState" hidden data-i18n="emptyPosts">
             这里还没有帖子，点右上角「发帖」发第一条吧
         </div>
     </main>
@@ -89,7 +92,7 @@
     <div class="modal-mask" id="notifModal" hidden>
         <div class="modal">
             <div class="modal-head">
-                <span>通知中心</span>
+                <span data-i18n="notificationsCenter">通知中心</span>
                 <button class="modal-close" id="notifClose">×</button>
             </div>
             <div class="modal-body" id="notifList"></div>
@@ -100,7 +103,7 @@
     <div class="modal-mask" id="profileModal" hidden>
         <div class="modal profile-modal">
             <div class="modal-head">
-                <span>用户主页</span>
+                <span data-i18n="profileTitle">用户主页</span>
                 <button class="modal-close" id="profileClose">×</button>
             </div>
             <div class="modal-body" id="profileBody"></div>
@@ -111,13 +114,13 @@
     <div class="modal-mask" id="messageModal" hidden>
         <div class="modal message-modal">
             <div class="modal-head">
-                <span id="messageTitle">私信</span>
+                <span id="messageTitle" data-i18n="messagesTitle">私信</span>
                 <button class="modal-close" id="messageClose">×</button>
             </div>
             <div class="modal-body message-body" id="messageBody"></div>
             <div class="message-compose" id="messageCompose" hidden>
-                <input type="text" id="messageInput" maxlength="1000" placeholder="输入私信...">
-                <button class="btn-post" id="messageSend">发送</button>
+                <input type="text" id="messageInput" maxlength="1000" placeholder="输入私信..." data-i18n-placeholder="msgPlaceholder">
+                <button class="btn-post" id="messageSend" data-i18n="send">发送</button>
             </div>
         </div>
     </div>
@@ -126,39 +129,39 @@
     <div class="modal-mask" id="postModal" hidden>
         <div class="post-dialog">
             <div class="modal-head">
-                <span>发布新帖子</span>
+                <span data-i18n="postModalTitle">发布新帖子</span>
                 <button class="modal-close" id="postClose">×</button>
             </div>
             <div class="post-body">
                 <div class="post-form-group">
-                    <label>发布身份</label>
-                    <input type="text" id="postAuthor" readonly title="以当前登录账号发布">
+                    <label data-i18n="postAuthorLabel">发布身份</label>
+                    <input type="text" id="postAuthor" readonly title="以当前登录账号发布" data-i18n-title="postAuthorTitle">
                 </div>
                 <div class="post-form-group">
-                    <label>标题</label>
-                    <input type="text" id="postTitle" placeholder="给帖子起个标题...">
+                    <label data-i18n="postTitleLabel">标题</label>
+                    <input type="text" id="postTitle" placeholder="给帖子起个标题..." data-i18n-placeholder="postTitlePlaceholder">
                 </div>
                 <div class="post-form-group">
-                    <label>正文</label>
-                    <textarea id="postContent" rows="5" placeholder="想说点什么..."></textarea>
+                    <label data-i18n="postContentLabel">正文</label>
+                    <textarea id="postContent" rows="5" placeholder="想说点什么..." data-i18n-placeholder="postContentPlaceholder"></textarea>
                 </div>
                 <div class="post-form-group">
-                    <label id="imageLabel">图片（可选，单张 ≤10MB）</label>
+                    <label id="imageLabel" data-i18n="postImageLabel">图片（可选，单张 ≤10MB）</label>
                     <div class="upload-area" id="uploadArea">
                         <input type="file" id="postImage" accept="image/*" multiple hidden>
-                        <div class="upload-placeholder" id="uploadPlaceholder">点击或拖拽上传图片（自动压缩）</div>
+                        <div class="upload-placeholder" id="uploadPlaceholder" data-i18n="postUploadPlaceholder">点击或拖拽上传图片（自动压缩）</div>
                     </div>
                     <div class="upload-hint" id="uploadHint"></div>
                     <div class="image-preview-list" id="imagePreviewList"></div>
                 </div>
                 <div class="post-form-group">
-                    <label>标签</label>
+                    <label data-i18n="postTagsLabel">标签</label>
                     <div class="tag-picker" id="tagPicker"></div>
                     <div class="tag-new-row">
-                        <input type="text" id="newTagInput" placeholder="输入新标签，回车添加">
+                        <input type="text" id="newTagInput" placeholder="输入新标签，回车添加" data-i18n-placeholder="postNewTagPlaceholder">
                     </div>
                 </div>
-                <button class="btn-post btn-submit" id="submitPostBtn">发布帖子</button>
+                <button class="btn-post btn-submit" id="submitPostBtn" data-i18n="postSubmit">发布帖子</button>
             </div>
         </div>
     </div>
@@ -166,7 +169,7 @@
     <!-- 帖子详情弹窗 -->
     <div class="detail-mask" id="detailModal" hidden>
         <div class="detail-dialog">
-            <button class="detail-close" id="detailClose" title="关闭">✕</button>
+            <button class="detail-close" id="detailClose" title="关闭" data-i18n-title="detailClose">✕</button>
 
             <div class="detail-grid">
                 <div class="detail-img-col">
@@ -189,10 +192,10 @@
 
                 <div class="detail-comments-col">
                     <div class="comments-head">
-                        <span>评论 <span id="commentCount">0</span></span>
+                        <span><span data-i18n="comments">评论</span> <span id="commentCount">0</span></span>
                         <div class="comments-sort">
-                            <button class="sort-btn active" data-sort="earliest">最早</button>
-                            <button class="sort-btn" data-sort="latest">最新</button>
+                            <button class="sort-btn active" data-sort="earliest" data-i18n="sortEarliest">最早</button>
+                            <button class="sort-btn" data-sort="latest" data-i18n="sortLatest">最新</button>
                         </div>
                     </div>
                     <div class="comments-list" id="commentsList"></div>
@@ -200,24 +203,24 @@
             </div>
 
             <div class="reply-bar" id="replyBar" hidden>
-                <span>正在回复 <b id="replyName"></b></span>
-                <button type="button" id="replyCancel">取消</button>
+                <span><span data-i18n="replying">正在回复</span> <b id="replyName"></b></span>
+                <button type="button" id="replyCancel" data-i18n="cancel">取消</button>
             </div>
 
             <div class="detail-footer">
                 <div class="footer-input">
-                    <input type="text" id="commentAuthor" readonly title="以当前登录账号评论" style="width:90px;margin-right:6px;">
-                    <input type="text" id="commentInput" placeholder="说点什么...">
+                    <input type="text" id="commentAuthor" readonly title="以当前登录账号评论" data-i18n-title="commentAsTitle" style="width:90px;margin-right:6px;">
+                    <input type="text" id="commentInput" placeholder="说点什么..." data-i18n-placeholder="commentPlaceholder">
                 </div>
-                <button class="footer-btn" id="footerLike" title="点赞"><svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg> <span id="footerLikeCount">0</span></button>
-                <button class="footer-btn" id="footerCoin" title="硬币"><svg class="icon icon-coin" aria-hidden="true"><use href="#i-coin"></use></svg> <span id="footerCoinCount">0</span></button>
-                <button class="footer-btn" id="footerStar" title="收藏"><svg class="icon icon-star" aria-hidden="true"><use href="#i-star"></use></svg> <span id="footerStarCount">0</span></button>
-                <button class="footer-btn footer-more" id="footerMore" title="更多" aria-label="更多" aria-haspopup="true" aria-expanded="false">
+                <button class="footer-btn" id="footerLike" title="点赞" data-i18n-title="like"><svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg> <span id="footerLikeCount">0</span></button>
+                <button class="footer-btn" id="footerCoin" title="硬币" data-i18n-title="coin"><svg class="icon icon-coin" aria-hidden="true"><use href="#i-coin"></use></svg> <span id="footerCoinCount">0</span></button>
+                <button class="footer-btn" id="footerStar" title="收藏" data-i18n-title="bookmark"><svg class="icon icon-star" aria-hidden="true"><use href="#i-star"></use></svg> <span id="footerStarCount">0</span></button>
+                <button class="footer-btn footer-more" id="footerMore" title="更多" aria-label="更多" aria-haspopup="true" aria-expanded="false" data-i18n-title="more" data-i18n-aria="more">
                     <svg class="icon icon-more" aria-hidden="true"><use href="#i-more"></use></svg>
                 </button>
                 <div class="more-menu" id="detailMoreMenu" hidden>
-                    <button type="button" class="more-item danger" id="moreDelete">删除</button>
-                    <button type="button" class="more-item" id="moreReport">举报</button>
+                    <button type="button" class="more-item danger" id="moreDelete" data-i18n="delete">删除</button>
+                    <button type="button" class="more-item" id="moreReport" data-i18n="report">举报</button>
                 </div>
             </div>
         </div>
@@ -225,44 +228,43 @@
 
     <!-- 图片查看器（点击详情图放大 / 轮播 / 下载） -->
     <div class="detail-mask image-viewer" id="imageViewer" hidden>
-        <button type="button" class="detail-close" id="imageViewerClose" title="关闭">✕</button>
-        <button type="button" class="image-viewer-nav prev" id="imageViewerPrev" title="上一张">‹</button>
-        <img class="image-viewer-img" id="imageViewerImg" alt="帖子图片">
-        <button type="button" class="image-viewer-nav next" id="imageViewerNext" title="下一张">›</button>
+        <button type="button" class="detail-close" id="imageViewerClose" title="关闭" data-i18n-title="detailClose">✕</button>
+        <button type="button" class="image-viewer-nav prev" id="imageViewerPrev" title="上一张" data-i18n-title="prevImage">‹</button>
+        <img class="image-viewer-img" id="imageViewerImg" alt="帖子图片" data-i18n-aria="imageAlt">
+        <button type="button" class="image-viewer-nav next" id="imageViewerNext" title="下一张" data-i18n-title="nextImage">›</button>
         <div class="image-viewer-count" id="imageViewerCount"></div>
-        <a class="image-viewer-download" id="imageViewerDownload">下载图片</a>
+        <a class="image-viewer-download" id="imageViewerDownload" data-i18n="downloadImage">下载图片</a>
     </div>
 
     <!-- 站内刷新（不调用浏览器刷新） -->
-    <button type="button" class="refresh-float-btn" id="refreshBtn" title="刷新帖子" aria-label="刷新帖子">
+    <button type="button" class="refresh-float-btn" id="refreshBtn" title="刷新帖子" aria-label="刷新帖子" data-i18n-title="refreshTitle" data-i18n-aria="refreshTitle">
         <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
     </button>
 
     <!-- AI 聊天窗口 - 耀耀 -->
-    <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
+    <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天" data-i18n-title="chatOpen">
         <img src="mascot.png" alt="耀耀">
     </button>
     <div class="chat-panel" id="chatPanel">
         <div class="chat-header">
             <div class="chat-header-left">
                 <div class="chat-avatar"><img src="mascot.png" alt="耀耀"></div>
-                <span>耀耀</span>
+                <span data-i18n="chatTitle">耀耀</span>
             </div>
             <button class="chat-close-btn" onclick="closeChat()">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="chat-msg ai"><div class="bubble">你好！我是耀耀，有什么可以帮你的？</div></div>
+            <div class="chat-msg ai"><div class="bubble" data-i18n="chatWelcome">你好！我是耀耀，有什么可以帮你的？</div></div>
         </div>
         <div class="chat-input-area">
-            <input type="text" id="chatInput" placeholder="输入消息...">
-            <button id="chatSendBtn">发送</button>
+            <input type="text" id="chatInput" placeholder="输入消息..." data-i18n-placeholder="chatPlaceholder">
+            <button id="chatSendBtn" data-i18n="chatSend">发送</button>
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261119i"></script>
-    <script src="js/language.js?v=20261119i"></script>
-    <script src="js/chat.js?v=20261119i"></script>
-    <script src="js/font-preview.js?v=20261119i"></script>
-    <script src="js/script.js?v=20261119i"></script>
+    <script src="js/auth.js?v=20261119j"></script>
+    <script src="js/i18n.js?v=20261119j"></script>
+    <script src="js/chat.js?v=20261119j"></script>
+    <script src="js/script.js?v=20261119j"></script>
 </body>
 </html>

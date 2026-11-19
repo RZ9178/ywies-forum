@@ -4,36 +4,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>注册 - YWIES 论坛</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/misans@5.0.0/lib/Normal/MiSansVF.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="style.css?v=20261119j">
 </head>
-<body class="auth-page">
+<body class="auth-page" data-page-title="registerPageTitle">
     <div class="auth-box">
-        <a href="index.html" class="auth-logo">YWIES 论坛</a>
-        <h1>注册新账号</h1>
+        <a href="index.html" class="auth-logo" data-i18n="appName">YWIES 论坛</a>
+        <button type="button" class="auth-lang js-lang-toggle" title="切换语言">EN</button>
+        <h1 data-i18n="authRegisterTitle">注册新账号</h1>
 
         <div class="auth-form">
             <div class="form-group">
-                <label>昵称</label>
-                <input type="text" id="regName" placeholder="给自己起个昵称">
+                <label data-i18n="nickname">昵称</label>
+                <input type="text" id="regName" placeholder="给自己起个昵称" data-i18n-placeholder="regNamePlaceholder">
             </div>
 
             <div class="form-group">
-                <label>密码（至少 6 位）</label>
-                <input type="password" id="regPassword" placeholder="设置密码">
+                <label data-i18n="passwordMinLabel">密码（至少 6 位）</label>
+                <input type="password" id="regPassword" placeholder="设置密码" data-i18n-placeholder="regPasswordPlaceholder">
             </div>
 
-            <button class="btn-primary" id="regBtn" onclick="doRegister()">注册</button>
+            <button class="btn-primary" id="regBtn" onclick="doRegister()" data-i18n="registerButton">注册</button>
 
-            <p class="auth-switch">已有账号？<a href="login.html">直接登录</a></p>
+            <p class="auth-switch"><span data-i18n="haveAccount">已有账号？</span> <a href="login.html" data-i18n="loginLink">直接登录</a></p>
         </div>
     </div>
 
     <script src="js/auth.js"></script>
+    <script src="js/i18n.js?v=20261119j"></script>
     <script>
         async function doRegister() {
             const username = document.getElementById('regName').value.trim();
             const password = document.getElementById('regPassword').value.trim();
-            if (!username || !password) { alert('请填昵称和密码'); return; }
+            if (!username || !password) { alert(I18n.t('fillBoth')); return; }
             const btn = document.getElementById('regBtn');
             btn.disabled = true;
             try {
@@ -41,7 +45,7 @@
                     username: username, password: password
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || '注册失败');
+                if (!res.ok) throw new Error(data.error || I18n.t('registerFailed'));
                 Auth.save(data.token, data.user);
                 window.location.href = 'index.html';
             } catch (e) {
