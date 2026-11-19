@@ -13,6 +13,7 @@ let searchQuery = '';
 let currentPost = null;
 let allComments = [];
 let commentSort = 'earliest';
+let replyTarget = null;
 let selectedTags = [];
 let uploadedImages = [];
 let maxPostImages = 3;
@@ -35,6 +36,7 @@ const K_BOOKMARK = 'ywies_bookmarked';
 const K_FOLLOW = 'ywies_following';
 const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
+const K_COMMENT_LIKED = 'ywies_comment_liked';
 const K_AUTHOR = 'ywies_author';
 const K_POSTS_CACHE = 'ywies_posts_cache_v2';
 
@@ -822,8 +824,9 @@ function bindDetailModal() {
         toggleBookmark(currentPost.id);
         updateFooterButtons();
     });
+    document.getElementById('replyCancel').addEventListener('click', resetReplyTarget);
     document.getElementById('commentInput').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') submitComment();
+        if (e.key === 'Enter' && !e.isComposing) submitComment();
     });
 }
 
@@ -844,6 +847,7 @@ async function openDetail(postId) {
 
 function closeDetail() {
     closeImageViewer();
+    resetReplyTarget();
     document.getElementById('detailModal').hidden = true;
     document.body.style.overflow = '';
     currentPost = null;
@@ -853,6 +857,7 @@ function closeDetail() {
 
 function renderDetail() {
     const p = currentPost;
+    resetReplyTarget();
     detailImages = getPostImages(p);
     detailImageIndex = 0;
     renderDetailImages();
@@ -890,46 +895,178 @@ async function deleteCurrentPost() {
     } catch (e) { alert('删除失败：' + e.message); }
 }
 
+function getCommentLiked() {
+    try {
+        return JSON.parse(localStorage.getItem(K_COMMENT_LIKED) || '[]');
+    } catch (e) {
+        return [];
+    }
+}
+
+function resetReplyTarget() {
+    replyTarget = null;
+    const bar = document.getElementById('replyBar');
+    if (bar) bar.hidden = true;
+    const input = document.getElementById('commentInput');
+    if (input) input.placeholder = '说点什么...';
+}
+
+function startReply(comment) {
+    if (!Auth.isLoggedIn()) {
+        alert('请先登录再回复');
+        window.location.href = 'login.html';
+        return;
+    }
+    replyTarget = { id: comment.id, author: comment.author };
+    const bar = document.getElementById('replyBar');
+    const name = document.getElementById('replyName');
+    const input = document.getElementById('commentInput');
+    if (bar) bar.hidden = false;
+    if (name) name.textContent = comment.author || '';
+    if (input) {
+        input.placeholder = '回复 @' + (comment.author || '') + '...';
+        input.focus();
+    }
+}
+
+function commentHtml(c, opts) {
+    opts = opts || {};
+    const postAuthor = currentPost ? currentPost.author : '';
+    const me = Auth.isLoggedIn() ? Auth.user.username : '';
+    const isAdmin = Auth.isAdmin();
+    const isReply = !!opts.isReply;
+    const isAuthor = c.author === postAuthor;
+    const canDel = isAdmin || c.author === me;
+    const liked = getCommentLiked().indexOf(c.id) !== -1;
+    return '<div class="comment-item' + (isReply ? ' comment-reply' : '') + '" data-cid="' + c.id + '">' +
+        '<div class="comment-head">' +
+            '<div class="comment-avatar' + (isReply ? ' small' : '') + '"></div>' +
+            '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
+            (isAuthor ? '<span class="comment-author-tag">楼主</span>' : '') +
+            (isReply && c.reply_to ? '<span class="comment-reply-to">回复 @' + escapeHtml(c.reply_to) + '</span>' : '') +
+            (!isReply ? '<span class="comment-floor">' + (opts.floor || 0) + 'F</span>' : '') +
+            (canDel ? '<button class="comment-del" data-cid="' + c.id + '" title="删除">删</button>' : '') +
+        '</div>' +
+        '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
+        '<div class="comment-actions">' +
+            '<button type="button" class="comment-action comment-like' + (liked ? ' active' : '') + '" data-cid="' + c.id + '" title="点赞">' +
+                '<svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg><span>' + (c.likes || 0) + '</span>' +
+            '</button>' +
+            '<button type="button" class="comment-action comment-reply-btn" data-cid="' + c.id + '" title="回复">' +
+                '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>回复' +
+            '</button>' +
+            '<span class="comment-time">' + formatTime(c.created_at) + '</span>' +
+        '</div>' +
+    '</div>';
+}
+
 function renderComments() {
     const list = document.getElementById('commentsList');
-    const sorted = allComments.slice();
-    if (commentSort === 'latest') sorted.reverse();
-    if (!sorted.length) {
+    if (!allComments.length) {
         list.innerHTML = '<div style="color:var(--text-dim);font-size:13px;padding:20px 0;text-align:center;">还没有评论，来说点什么吧</div>';
         return;
     }
-    const author = currentPost ? currentPost.author : '';
-    const me = Auth.isLoggedIn() ? Auth.user.username : '';
-    const isAdmin = Auth.isAdmin();
-    list.innerHTML = sorted.map(function (c, i) {
-        const floor = commentSort === 'earliest' ? (i + 1) : (sorted.length - i);
-        const isAuthor = c.author === author;
-        const canDel = isAdmin || c.author === me;
-        return '<div class="comment-item">' +
-            '<div class="comment-head">' +
-                '<div class="comment-avatar"></div>' +
-                '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
-                (isAuthor ? '<span class="comment-author-tag">楼主</span>' : '') +
-                '<span class="comment-floor">' + floor + 'F</span>' +
-                (canDel ? '<button class="comment-del" data-cid="' + c.id + '">删</button>' : '') +
-            '</div>' +
-            '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
-            '<div class="comment-time">' + formatTime(c.created_at) + '</div>' +
-        '</div>';
+    const byId = {};
+    allComments.forEach(function (c) { byId[c.id] = c; });
+    const roots = allComments.filter(function (c) {
+        return !c.parent_id || !byId[c.parent_id];
+    }).sort(function (a, b) { return a.id - b.id; });
+    const floorMap = {};
+    roots.forEach(function (c, i) { floorMap[c.id] = i + 1; });
+    const children = {};
+    allComments.forEach(function (c) {
+        if (!c.parent_id || !byId[c.parent_id]) return;
+        (children[c.parent_id] = children[c.parent_id] || []).push(c);
+    });
+    Object.keys(children).forEach(function (k) {
+        children[k].sort(function (a, b) { return a.id - b.id; });
+    });
+    const ordered = commentSort === 'latest' ? roots.slice().reverse() : roots;
+    list.innerHTML = ordered.map(function (root) {
+        const replies = children[root.id] || [];
+        return commentHtml(root, { floor: floorMap[root.id] }) +
+            (replies.length
+                ? '<div class="comment-replies">' + replies.map(function (r) {
+                    return commentHtml(r, { isReply: true });
+                }).join('') + '</div>'
+                : '');
     }).join('');
-    // 绑定删除评论
+    bindCommentActions();
+}
+
+function bindCommentActions() {
+    const list = document.getElementById('commentsList');
     list.querySelectorAll('.comment-del').forEach(function (btn) {
         btn.addEventListener('click', async function () {
-            if (!confirm('删除这条评论？')) return;
+            const cid = Number(this.getAttribute('data-cid'));
+            const replies = allComments.filter(function (c) { return c.parent_id === cid; });
+            const msg = replies.length
+                ? '删除这条评论？其下 ' + replies.length + ' 条回复也会一起删除'
+                : '删除这条评论？';
+            if (!confirm(msg)) return;
             try {
-                await Auth.del(API + '/' + currentPost.id + '/comments/' + btn.getAttribute('data-cid'));
-                const res = await Auth.get(API + '/' + currentPost.id + '/comments');
-                allComments = res.ok ? await res.json() : allComments;
-                document.getElementById('commentCount').textContent = allComments.length;
-                renderComments();
-            } catch (e) { alert('删除失败：' + e.message); }
+                await Auth.del(API + '/' + currentPost.id + '/comments/' + cid);
+                await reloadComments();
+            } catch (e) {
+                alert('删除失败：' + e.message);
+            }
         });
     });
+    list.querySelectorAll('.comment-like').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+            if (!Auth.isLoggedIn()) {
+                alert('请先登录再点赞');
+                window.location.href = 'login.html';
+                return;
+            }
+            const cid = Number(this.getAttribute('data-cid'));
+            const c = allComments.find(function (x) { return x.id === cid; });
+            if (!c || this.disabled) return;
+            const on = getCommentLiked().indexOf(cid) === -1;
+            this.disabled = true;
+            try {
+                const res = await Auth.post(API + '/' + currentPost.id + '/comments/' + cid + '/like', { on: on });
+                if (!res.ok) {
+                    const err = await res.json().catch(function () { return {}; });
+                    throw new Error(err.error || '点赞失败');
+                }
+                const data = await res.json();
+                c.likes = data.likes;
+                const liked = getCommentLiked();
+                const idx = liked.indexOf(cid);
+                if (on && idx === -1) liked.push(cid);
+                if (!on && idx !== -1) liked.splice(idx, 1);
+                localStorage.setItem(K_COMMENT_LIKED, JSON.stringify(liked));
+                this.classList.toggle('active', on);
+                const span = this.querySelector('span');
+                if (span) span.textContent = data.likes;
+            } catch (e) {
+                alert('点赞失败：' + e.message);
+            } finally {
+                this.disabled = false;
+            }
+        });
+    });
+    list.querySelectorAll('.comment-reply-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const cid = Number(this.getAttribute('data-cid'));
+            const c = allComments.find(function (x) { return x.id === cid; });
+            if (c) startReply(c);
+        });
+    });
+}
+
+async function reloadComments() {
+    if (!currentPost) return;
+    try {
+        const res = await Auth.get(API + '/' + currentPost.id + '/comments');
+        if (res.ok) allComments = await res.json();
+    } catch (e) {}
+    if (replyTarget && !allComments.some(function (c) { return c.id === replyTarget.id; })) {
+        resetReplyTarget();
+    }
+    document.getElementById('commentCount').textContent = allComments.length;
+    renderComments();
 }
 
 async function submitComment() {
@@ -941,18 +1078,22 @@ async function submitComment() {
     const input = document.getElementById('commentInput');
     const text = input.value.trim();
     if (!text || !currentPost) return;
+    const payload = { content: text };
+    if (replyTarget) payload.parent_id = replyTarget.id;
     try {
-        const res = await Auth.post(API + '/' + currentPost.id + '/comments', { content: text });
+        const res = await Auth.post(API + '/' + currentPost.id + '/comments', payload);
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || '评论失败');
         }
         input.value = '';
-        const res2 = await Auth.get(API + '/' + currentPost.id + '/comments');
-        allComments = res2.ok ? await res2.json() : allComments;
-        document.getElementById('commentCount').textContent = allComments.length;
-        renderComments();
-    } catch (e) { alert('评论失败：' + e.message); }
+        resetReplyTarget();
+        await reloadComments();
+        const list = document.getElementById('commentsList');
+        if (list) list.scrollTop = commentSort === 'latest' ? 0 : list.scrollHeight;
+    } catch (e) {
+        alert('评论失败：' + e.message);
+    }
 }
 
 function getPostImages(post) {

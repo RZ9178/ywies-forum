@@ -36,6 +36,8 @@ CREATE TABLE comments (
     author      TEXT NOT NULL DEFAULT '匿名同学',
     content     TEXT NOT NULL,
     likes       INTEGER NOT NULL DEFAULT 0,
+    parent_id   INTEGER DEFAULT 0,
+    reply_to    TEXT DEFAULT '',
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );

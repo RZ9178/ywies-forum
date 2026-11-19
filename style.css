@@ -1536,3 +1536,85 @@ input[readonly] {
     color: var(--accent);
 }
 .empty-state.retry:hover { text-decoration: underline; }
+
+/* ============================================
+   评论点赞 / 回复
+   ============================================ */
+.comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 6px 0 0 36px;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+.comment-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+    color: var(--text-dim);
+    font-size: 11px;
+}
+.comment-action .icon { width: 13px; height: 13px; }
+.comment-action:hover { color: var(--accent); }
+.comment-like.active { color: var(--danger); }
+.comment-like.active .icon { fill: currentColor; }
+.comment-action:disabled { opacity: 0.5; cursor: default; }
+.comment-actions .comment-time {
+    margin: 0 0 0 auto;
+}
+.comment-replies {
+    margin: 8px 0 0 36px;
+    padding-left: 10px;
+    border-left: 2px solid var(--border);
+}
+.comment-reply {
+    padding: 8px 0 0;
+    border-bottom: none;
+}
+.comment-reply .comment-head { gap: 6px; }
+.comment-reply .comment-avatar.small {
+    width: 22px;
+    height: 22px;
+}
+.comment-reply .comment-name { font-size: 12px; }
+.comment-reply .comment-text,
+.comment-reply .comment-actions {
+    margin-left: 30px;
+}
+.comment-reply .comment-text { font-size: 13px; }
+.comment-reply-to {
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.reply-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--accent-soft);
+    font-size: 12px;
+    color: var(--text);
+}
+.reply-bar[hidden] { display: none; }
+.reply-bar b { color: var(--accent); }
+.reply-bar button {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+.reply-bar button:hover { color: var(--accent); }
+
+@media (max-width: 768px) {
+    .comment-replies { margin-left: 20px; }
+    .comment-actions { margin-left: 30px; gap: 10px; }
+    .comment-reply .comment-text,
+    .comment-reply .comment-actions { margin-left: 26px; }
+    .reply-bar { padding: 8px 12px; }
+}

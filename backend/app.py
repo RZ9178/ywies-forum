@@ -689,7 +689,14 @@ def list_comments(post_id):
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
-        return jsonify([dict(r, created_at=_fmt_time(r["created_at"])) for r in rows])
+        out = []
+        for r in rows:
+            item = dict(r)
+            item["created_at"] = _fmt_time(item["created_at"])
+            item["parent_id"] = item.get("parent_id") or 0
+            item["reply_to"] = item.get("reply_to") or ""
+            out.append(item)
+        return jsonify(out)
     finally:
         conn.close()
 
@@ -702,6 +709,10 @@ def create_comment(post_id):
     author = request.current_user["username"]
     if not content:
         return jsonify({"error": "内容不能为空"}), 400
+    try:
+        parent_id = int(data.get("parent_id") or 0)
+    except (TypeError, ValueError):
+        parent_id = 0
     conn = get_db()
     try:
         # 先确认帖子存在，顺便拿到作者和标题给通知用（也修掉对不存在帖子插孤儿评论的旧问题）
@@ -710,20 +721,82 @@ def create_comment(post_id):
             return jsonify({"error": "帖子不存在"}), 404
         post_title = post["title"] or ""
         post_author = post["author"] or ""
+
+        reply_to = ""
+        if parent_id:
+            parent = conn.execute(
+                "SELECT id, author, parent_id FROM comments WHERE id=? AND post_id=?",
+                (parent_id, post_id),
+            ).fetchone()
+            if not parent:
+                return jsonify({"error": "被回复的评论不存在"}), 400
+            reply_to = parent["author"] or ""
+            if parent["parent_id"]:
+                # 回复“回复”时，挂到最上层评论下，并记录被回复的人
+                root = conn.execute(
+                    "SELECT id FROM comments WHERE id=? AND post_id=?",
+                    (parent["parent_id"], post_id),
+                ).fetchone()
+                if root:
+                    parent_id = root["id"]
+                else:
+                    parent_id = 0
+                    reply_to = ""
+            else:
+                parent_id = parent["id"]
+
         conn.execute(
-            "INSERT INTO comments (post_id, author, content) VALUES (?, ?, ?)",
-            (post_id, author, content),
+            "INSERT INTO comments (post_id, author, content, parent_id, reply_to) VALUES (?, ?, ?, ?, ?)",
+            (post_id, author, content, parent_id, reply_to),
         )
         new_id = conn.max_id("comments")
+
         # 通知帖子作者；自己评论自己的帖子不发
         if post_author and post_author != author:
             conn.execute(
                 "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
                 (post_author, "有人评论了你的帖子", f"{author} 评论了《{post_title}》"),
             )
+        # 回复某条评论时，通知被回复的人；与帖子作者重复时只发一条
+        if parent_id and reply_to and reply_to != author and reply_to != post_author:
+            conn.execute(
+                "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
+                (reply_to, "有人回复了你的评论", f"{author}：{content[:40]}"),
+            )
         conn.commit()
-        return jsonify({"id": new_id, "post_id": post_id, "author": author,
-                        "content": content, "likes": 0, "created_at": "刚刚"}), 201
+        return jsonify({
+            "id": new_id, "post_id": post_id, "author": author,
+            "content": content, "likes": 0, "created_at": "刚刚",
+            "parent_id": parent_id, "reply_to": reply_to,
+        }), 201
+    finally:
+        conn.close()
+
+
+@app.route("/api/posts/<int:post_id>/comments/<int:cid>/like", methods=["POST"])
+@login_required
+def toggle_comment_like(post_id, cid):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM comments WHERE id=? AND post_id=?", (cid, post_id)
+        ).fetchone()
+        if not row:
+            return jsonify({"error": "评论不存在"}), 404
+        if on:
+            conn.execute("UPDATE comments SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (cid,))
+        else:
+            conn.execute(
+                "UPDATE comments SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
+                (cid,),
+            )
+        conn.commit()
+        row = conn.execute("SELECT likes FROM comments WHERE id=?", (cid,)).fetchone()
+        if not row:
+            return jsonify({"error": "评论不存在"}), 404
+        return jsonify({"likes": row["likes"]})
     finally:
         conn.close()
 
@@ -740,6 +813,8 @@ def delete_comment(post_id, cid):
         is_author = row["author"] == request.current_user["username"]
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
+        # 删除这条评论及其下回复（当前只支持一层回复）
+        conn.execute("DELETE FROM comments WHERE parent_id=?", (cid,))
         conn.execute("DELETE FROM comments WHERE id=?", (cid,))
         conn.commit()
         return jsonify({"ok": True})
@@ -940,6 +1015,10 @@ def admin_delete_user(uid):
             return jsonify({"error": "用户不存在"}), 404
         # 级联删除该用户的内容：评论、帖子、帖下评论、通知、私信
         username = user["username"]
+        conn.execute(
+            "DELETE FROM comments WHERE parent_id IN (SELECT id FROM comments WHERE author=?)",
+            (username,),
+        )
         conn.execute("DELETE FROM comments WHERE author=?", (username,))
         conn.execute("DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE author=?)", (username,))
         conn.execute("DELETE FROM posts WHERE author=?", (username,))
@@ -1002,6 +1081,8 @@ def _migrate():
                     author TEXT NOT NULL,
                     content TEXT NOT NULL,
                     likes INTEGER DEFAULT 0,
+                    parent_id INTEGER DEFAULT 0,
+                    reply_to TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1051,11 +1132,11 @@ def _migrate():
             conn.commit()
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
-        text_cols = {"tags", "email", "token", "image_url", "images"}
+        text_cols = {"tags", "email", "token", "image_url", "images", "reply_to"}
         col_sets = {}
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
-            ("comments", ["likes"]),
+            ("comments", ["likes", "parent_id", "reply_to"]),
             ("users", ["email", "is_admin", "token", "token_expires"]),
         ]:
             if is_pg:

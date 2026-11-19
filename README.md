@@ -69,6 +69,13 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 首页把最近 50 帖缓存到 localStorage，先渲染缓存再后台刷新；失败自动重试（2s/5s/10s/20s），60 秒超时
 - API 响应 `Cache-Control: no-store`，HTML `no-cache`，避免平板缓存旧空列表
 
+## 评论
+
+- 支持评论点赞：`POST /api/posts/<id>/comments/<cid>/like`，计数落库，本地记忆自己点没点过
+- 支持一层回复：回复的回复会归到最上层评论下，并显示「回复 @某人」
+- 删除根评论会级联删除其下回复
+- 回复会通知被回复的人（与帖子作者通知去重）
+
 ## 部署
 
 Render Web Service，`main` 分支 push 后自动构建部署：
