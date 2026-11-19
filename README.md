@@ -71,10 +71,11 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 
 ## 评论
 
-- 支持评论点赞：`POST /api/posts/<id>/comments/<cid>/like`，计数落库，本地记忆自己点没点过
+- 支持评论点赞：`POST /api/posts/<id>/comments/<cid>/like`，按账号去重（`comment_likes` 表），换设备状态一致
 - 支持一层回复：回复的回复会归到最上层评论下，并显示「回复 @某人」
 - 删除根评论会级联删除其下回复
 - 回复会通知被回复的人（与帖子作者通知去重）
+- 首次升级会清零没有账号归属的历史评论点赞计数
 
 ## 部署
 

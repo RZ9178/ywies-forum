@@ -577,6 +577,11 @@ def delete_post(post_id):
         is_author = row["author"] == request.current_user["username"]
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的帖子或由管理员删除"}), 403
+        conn.execute(
+            "DELETE FROM comment_likes WHERE comment_id IN "
+            "(SELECT id FROM comments WHERE post_id=?)",
+            (post_id,),
+        )
         conn.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
         conn.commit()
@@ -686,15 +691,25 @@ def upload_image():
 
 @app.route("/api/posts/<int:post_id>/comments", methods=["GET"])
 def list_comments(post_id):
+    user = _get_current_user()
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
+        liked_ids = set()
+        if user:
+            liked_rows = conn.execute(
+                "SELECT comment_id FROM comment_likes WHERE username=? AND comment_id IN "
+                "(SELECT id FROM comments WHERE post_id=?)",
+                (user["username"], post_id),
+            ).fetchall()
+            liked_ids = {r["comment_id"] for r in liked_rows}
         out = []
         for r in rows:
             item = dict(r)
             item["created_at"] = _fmt_time(item["created_at"])
             item["parent_id"] = item.get("parent_id") or 0
             item["reply_to"] = item.get("reply_to") or ""
+            item["liked"] = r["id"] in liked_ids
             out.append(item)
         return jsonify(out)
     finally:
@@ -785,18 +800,35 @@ def toggle_comment_like(post_id, cid):
         ).fetchone()
         if not row:
             return jsonify({"error": "评论不存在"}), 404
+        me = request.current_user["username"]
+        changed = False
         if on:
-            conn.execute("UPDATE comments SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (cid,))
-        else:
-            conn.execute(
-                "UPDATE comments SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
-                (cid,),
+            cur = conn.execute(
+                "INSERT INTO comment_likes (comment_id, username) VALUES (?, ?) "
+                "ON CONFLICT (comment_id, username) DO NOTHING",
+                (cid, me),
             )
+            changed = cur.rowcount > 0
+            if changed:
+                conn.execute("UPDATE comments SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (cid,))
+        else:
+            cur = conn.execute(
+                "DELETE FROM comment_likes WHERE comment_id=? AND username=?", (cid, me)
+            )
+            changed = cur.rowcount > 0
+            if changed:
+                conn.execute(
+                    "UPDATE comments SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
+                    (cid,),
+                )
         conn.commit()
         row = conn.execute("SELECT likes FROM comments WHERE id=?", (cid,)).fetchone()
         if not row:
             return jsonify({"error": "评论不存在"}), 404
-        return jsonify({"likes": row["likes"]})
+        liked = conn.execute(
+            "SELECT 1 AS x FROM comment_likes WHERE comment_id=? AND username=?", (cid, me)
+        ).fetchone() is not None
+        return jsonify({"likes": row["likes"], "liked": liked})
     finally:
         conn.close()
 
@@ -814,6 +846,11 @@ def delete_comment(post_id, cid):
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
         # 删除这条评论及其下回复（当前只支持一层回复）
+        conn.execute(
+            "DELETE FROM comment_likes WHERE comment_id IN "
+            "(SELECT id FROM comments WHERE id=? OR parent_id=?)",
+            (cid, cid),
+        )
         conn.execute("DELETE FROM comments WHERE parent_id=?", (cid,))
         conn.execute("DELETE FROM comments WHERE id=?", (cid,))
         conn.commit()
@@ -1024,6 +1061,8 @@ def admin_delete_user(uid):
         conn.execute("DELETE FROM posts WHERE author=?", (username,))
         conn.execute("DELETE FROM notifs WHERE username=?", (username,))
         conn.execute("DELETE FROM messages WHERE sender=? OR receiver=?", (username, username))
+        conn.execute("DELETE FROM comment_likes WHERE username=?", (username,))
+        conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
         conn.execute("DELETE FROM users WHERE id=?", (uid,))
         conn.commit()
         return jsonify({"ok": True})
@@ -1046,6 +1085,19 @@ def _migrate():
     try:
         # 先建表（PostgreSQL 用）
         is_pg = bool(DATABASE_URL)
+        # 首次创建 comment_likes 时，历史点赞计数无法归属到账号，需要清零
+        try:
+            if is_pg:
+                has_likes_table = conn.execute(
+                    "SELECT 1 AS x FROM information_schema.tables "
+                    "WHERE table_schema='public' AND table_name='comment_likes'"
+                ).fetchone() is not None
+            else:
+                has_likes_table = conn.execute(
+                    "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='comment_likes'"
+                ).fetchone() is not None
+        except Exception:
+            has_likes_table = True
         if is_pg:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -1106,6 +1158,15 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS comment_likes (
+                    id SERIAL PRIMARY KEY,
+                    comment_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (comment_id, username)
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1129,7 +1190,25 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS comment_likes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    comment_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (comment_id, username)
+                )
+            """)
             conn.commit()
+
+        if not has_likes_table:
+            # 评论点赞改为按账号记录；旧计数没有用户名，无法去重，一次性归零
+            try:
+                conn.execute("UPDATE comments SET likes=0")
+                conn.commit()
+                print("[迁移] 初始化评论点赞：历史计数已清零（从现在起按账号去重）")
+            except Exception as e:
+                print(f"[迁移] 评论点赞计数清零跳过：{e}")
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
         text_cols = {"tags", "email", "token", "image_url", "images", "reply_to"}
@@ -1176,6 +1255,13 @@ def _migrate():
                     print(f"[迁移] 已把 {moved} 条帖子的旧 image 列内容迁到 image_url")
             except Exception as e:
                 print(f"[迁移] 旧 image 列迁移跳过：{e}")
+
+        # 清理已删评论留下的点赞记录（幂等）
+        try:
+            conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
+            conn.commit()
+        except Exception as e:
+            print(f"[迁移] 评论点赞清理跳过：{e}")
 
         # 常用查询加索引（幂等，SQLite / PostgreSQL 都支持）
         for ddl in (

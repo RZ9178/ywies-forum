@@ -1,6 +1,7 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS comment_likes;
 DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS notifs;
 DROP TABLE IF EXISTS comments;
@@ -58,4 +59,12 @@ CREATE TABLE messages (
     content     TEXT NOT NULL,
     is_read     INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE comment_likes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    comment_id  INTEGER NOT NULL,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (comment_id, username)
 );

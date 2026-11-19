@@ -937,7 +937,7 @@ function commentHtml(c, opts) {
     const isReply = !!opts.isReply;
     const isAuthor = c.author === postAuthor;
     const canDel = isAdmin || c.author === me;
-    const liked = getCommentLiked().indexOf(c.id) !== -1;
+    const liked = c.liked !== undefined ? !!c.liked : (getCommentLiked().indexOf(c.id) !== -1);
     return '<div class="comment-item' + (isReply ? ' comment-reply' : '') + '" data-cid="' + c.id + '">' +
         '<div class="comment-head">' +
             '<div class="comment-avatar' + (isReply ? ' small' : '') + '"></div>' +
@@ -1022,7 +1022,10 @@ function bindCommentActions() {
             const cid = Number(this.getAttribute('data-cid'));
             const c = allComments.find(function (x) { return x.id === cid; });
             if (!c || this.disabled) return;
-            const on = getCommentLiked().indexOf(cid) === -1;
+            const currentlyLiked = c.liked !== undefined
+                ? !!c.liked
+                : (getCommentLiked().indexOf(cid) !== -1);
+            const on = !currentlyLiked;
             this.disabled = true;
             try {
                 const res = await Auth.post(API + '/' + currentPost.id + '/comments/' + cid + '/like', { on: on });
@@ -1032,12 +1035,13 @@ function bindCommentActions() {
                 }
                 const data = await res.json();
                 c.likes = data.likes;
+                c.liked = (typeof data.liked === 'boolean') ? data.liked : on;
                 const liked = getCommentLiked();
                 const idx = liked.indexOf(cid);
-                if (on && idx === -1) liked.push(cid);
-                if (!on && idx !== -1) liked.splice(idx, 1);
+                if (c.liked && idx === -1) liked.push(cid);
+                if (!c.liked && idx !== -1) liked.splice(idx, 1);
                 localStorage.setItem(K_COMMENT_LIKED, JSON.stringify(liked));
-                this.classList.toggle('active', on);
+                this.classList.toggle('active', c.liked);
                 const span = this.querySelector('span');
                 if (span) span.textContent = data.likes;
             } catch (e) {
