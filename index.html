@@ -6,7 +6,7 @@
     <title>YWIES 论坛</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/misans@5.0.0/lib/Normal/MiSansVF.min.css" crossorigin="anonymous">
-    <link rel="stylesheet" href="style.css?v=20261119k">
+    <link rel="stylesheet" href="style.css?v=20261119l">
 </head>
 <body>
 
@@ -226,6 +226,28 @@
         </div>
     </div>
 
+    <!-- 投币数量选择 -->
+    <div class="coin-mask" id="coinModal" hidden>
+        <div class="coin-dialog" role="dialog" aria-modal="true">
+            <div class="coin-dialog-head">
+                <span data-i18n="coinModalTitle">投币</span>
+                <button type="button" class="coin-close" id="coinClose" data-i18n-aria="detailClose">×</button>
+            </div>
+            <p class="coin-choose" data-i18n="coinChoose">选择投币数量</p>
+            <div class="coin-options">
+                <button type="button" class="coin-option" data-amount="1">
+                    <svg class="icon icon-coin" aria-hidden="true"><use href="#i-coin"></use></svg>
+                    <span data-i18n="coinOne">1 币</span>
+                </button>
+                <button type="button" class="coin-option" data-amount="2">
+                    <svg class="icon icon-coin" aria-hidden="true"><use href="#i-coin"></use></svg>
+                    <span data-i18n="coinTwo">2 币</span>
+                </button>
+            </div>
+            <button type="button" class="coin-cancel" id="coinCancel" data-i18n="cancel">取消</button>
+        </div>
+    </div>
+
     <!-- 图片查看器（点击详情图放大 / 轮播 / 下载） -->
     <div class="detail-mask image-viewer" id="imageViewer" hidden>
         <button type="button" class="detail-close" id="imageViewerClose" title="关闭" data-i18n-title="detailClose">✕</button>
@@ -262,9 +284,9 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261119k"></script>
-    <script src="js/i18n.js?v=20261119k"></script>
-    <script src="js/chat.js?v=20261119k"></script>
-    <script src="js/script.js?v=20261119k"></script>
+    <script src="js/auth.js?v=20261119l"></script>
+    <script src="js/i18n.js?v=20261119l"></script>
+    <script src="js/chat.js?v=20261119l"></script>
+    <script src="js/script.js?v=20261119l"></script>
 </body>
 </html>

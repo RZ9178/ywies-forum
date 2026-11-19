@@ -792,22 +792,38 @@ def toggle_coin(post_id):
     me = request.current_user["username"]
     conn = get_db()
     try:
-        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+        post = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not post:
             return jsonify({"error": "帖子不存在"}), 404
+        if post["author"] == me:
+            return jsonify({"error": "不能给自己的帖子投币"}), 400
         if not on:
             return jsonify({"error": "投币后不能撤回"}), 400
+        try:
+            amount = int(data.get("amount", 1))
+        except (TypeError, ValueError):
+            amount = 1
+        if amount not in (1, 2):
+            return jsonify({"error": "投币数量只能是 1 或 2"}), 400
         cur = conn.execute(
-            "INSERT INTO post_coins (post_id, username) VALUES (?, ?) "
+            "INSERT INTO post_coins (post_id, username, amount) VALUES (?, ?, ?) "
             "ON CONFLICT (post_id, username) DO NOTHING",
-            (post_id, me),
+            (post_id, me, amount),
         )
         if cur.rowcount > 0:
-            conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + 1 WHERE id=?", (post_id,))
+            conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + ? WHERE id=?", (amount, post_id))
         conn.commit()
         row = conn.execute("SELECT coins FROM posts WHERE id=?", (post_id,)).fetchone()
         if not row:
             return jsonify({"error": "帖子不存在"}), 404
-        return jsonify({"coins": row["coins"], "coined": True})
+        own = conn.execute(
+            "SELECT amount FROM post_coins WHERE post_id=? AND username=?", (post_id, me)
+        ).fetchone()
+        return jsonify({
+            "coins": row["coins"],
+            "coined": True,
+            "amount": (own["amount"] if own and own["amount"] else amount),
+        })
     finally:
         conn.close()
 
@@ -1474,6 +1490,7 @@ def _migrate():
                     id SERIAL PRIMARY KEY,
                     post_id INTEGER NOT NULL,
                     username TEXT NOT NULL,
+                    amount INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (post_id, username)
                 )
@@ -1544,6 +1561,7 @@ def _migrate():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     post_id INTEGER NOT NULL,
                     username TEXT NOT NULL,
+                    amount INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (post_id, username)
                 )
@@ -1654,6 +1672,34 @@ def _migrate():
             conn.commit()
         except Exception as e:
             print(f"[迁移] 点赞/投币清理跳过：{e}")
+
+        # 帖子投币：新增 amount；清理历史自投币，并按记录重算总币数
+        try:
+            if is_pg:
+                amount_col = conn.execute(
+                    "SELECT 1 AS x FROM information_schema.columns "
+                    "WHERE table_schema='public' AND table_name='post_coins' AND column_name='amount'"
+                ).fetchone() is not None
+            else:
+                amount_col = any(
+                    (r["name"] if "name" in r.keys() else r[1]) == "amount"
+                    for r in conn.execute("PRAGMA table_info(post_coins)").fetchall()
+                )
+            if not amount_col:
+                conn.execute("ALTER TABLE post_coins ADD COLUMN amount INTEGER DEFAULT 1")
+                conn.commit()
+                print("[迁移] 已给 post_coins 加上 amount 列")
+            conn.execute(
+                "DELETE FROM post_coins WHERE EXISTS ("
+                "SELECT 1 FROM posts p WHERE p.id = post_coins.post_id AND p.author = post_coins.username)"
+            )
+            conn.execute(
+                "UPDATE posts SET coins = COALESCE(("
+                "SELECT SUM(pc.amount) FROM post_coins pc WHERE pc.post_id = posts.id), 0)"
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[迁移] 投币数量迁移跳过：{e}")
 
         # 常用查询加索引（幂等，SQLite / PostgreSQL 都支持）
         for ddl in (

@@ -92,6 +92,7 @@ CREATE TABLE post_coins (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id     INTEGER NOT NULL,
     username    TEXT NOT NULL,
+    amount      INTEGER DEFAULT 1,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (post_id, username)
 );

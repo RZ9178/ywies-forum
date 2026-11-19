@@ -887,43 +887,19 @@ function bindDetailModal() {
             btn.disabled = false;
         }
     });
-    document.getElementById('footerCoin').addEventListener('click', async function () {
-        if (!currentPost) return;
-        const btn = this;
-        if (btn.disabled) return;
+    document.getElementById('footerCoin').addEventListener('click', function () {
+        if (!currentPost || this.disabled) return;
         if (!Auth.isLoggedIn()) {
             alert(T('loginToCoin'));
             window.location.href = 'login.html';
             return;
         }
+        if (Auth.user && currentPost.author === Auth.user.username) return;
         const alreadyCoined = currentPost.coined !== undefined
             ? !!currentPost.coined
             : (getCoined().indexOf(currentPost.id) !== -1);
-        if (alreadyCoined) {
-            alert(T('coinNoWithdraw'));
-            updateFooterButtons();
-            return;
-        }
-        if (!confirm(T('coinConfirm'))) return;
-        btn.disabled = true;
-        try {
-            const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: true });
-            if (!res.ok) {
-                const err = await res.json().catch(function () { return {}; });
-                throw new Error(err.error || T('coinFailed'));
-            }
-            const data = await res.json();
-            currentPost.coins = data.coins;
-            currentPost.coined = (typeof data.coined === 'boolean') ? data.coined : true;
-            const coined = getCoined();
-            if (coined.indexOf(currentPost.id) === -1) coined.push(currentPost.id);
-            localStorage.setItem(K_COINED, JSON.stringify(coined));
-            updateFooterButtons();
-        } catch (e) {
-            alert(T('coinFailed') + ' ' + e.message);
-        } finally {
-            btn.disabled = !!(currentPost && currentPost.coined);
-        }
+        if (alreadyCoined) return;
+        openCoinModal();
     });
     document.getElementById('footerStar').addEventListener('click', function () {
         if (!currentPost) return;
@@ -966,6 +942,60 @@ function bindDetailModal() {
             if (e.key === 'Escape') closeDetailMoreMenu();
         });
     }
+    const coinModal = document.getElementById('coinModal');
+    if (coinModal) {
+        document.getElementById('coinClose').addEventListener('click', closeCoinModal);
+        document.getElementById('coinCancel').addEventListener('click', closeCoinModal);
+        coinModal.addEventListener('click', function (e) {
+            if (e.target === this) closeCoinModal();
+        });
+        document.querySelectorAll('.coin-option').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                giveCoin(Number(this.getAttribute('data-amount')));
+            });
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !coinModal.hidden) closeCoinModal();
+        });
+    }
+}
+
+function openCoinModal() {
+    const modal = document.getElementById('coinModal');
+    if (!modal) return;
+    document.querySelectorAll('.coin-option').forEach(function (b) { b.disabled = false; });
+    modal.hidden = false;
+}
+
+function closeCoinModal() {
+    const modal = document.getElementById('coinModal');
+    if (modal) modal.hidden = true;
+}
+
+async function giveCoin(amount) {
+    if (!currentPost || (amount !== 1 && amount !== 2)) return;
+    const modal = document.getElementById('coinModal');
+    if (!modal || modal.hidden) return;
+    const options = Array.prototype.slice.call(modal.querySelectorAll('.coin-option'));
+    options.forEach(function (b) { b.disabled = true; });
+    try {
+        const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: true, amount: amount });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || T('coinFailed'));
+        }
+        const data = await res.json();
+        currentPost.coins = data.coins;
+        currentPost.coined = (typeof data.coined === 'boolean') ? data.coined : true;
+        const coined = getCoined();
+        if (coined.indexOf(currentPost.id) === -1) coined.push(currentPost.id);
+        localStorage.setItem(K_COINED, JSON.stringify(coined));
+        closeCoinModal();
+        updateFooterButtons();
+    } catch (e) {
+        options.forEach(function (b) { b.disabled = false; });
+        alert(T('coinFailed') + ' ' + e.message);
+    }
 }
 
 async function openDetail(postId) {
@@ -993,6 +1023,7 @@ function closeDetailMoreMenu() {
 function closeDetail() {
     closeImageViewer();
     closeDetailMoreMenu();
+    closeCoinModal();
     resetReplyTarget();
     expandedReplyThreads = {};
     document.getElementById('detailModal').hidden = true;
@@ -1702,10 +1733,12 @@ function updateFooterButtons() {
     document.getElementById('footerStarCount').textContent = bm.indexOf(currentPost.id) !== -1 ? 1 : 0;
     const likeBtn = document.getElementById('footerLike');
     const coinBtn = document.getElementById('footerCoin');
+    const isOwn = !!(Auth.isLoggedIn() && Auth.user && currentPost.author === Auth.user.username);
     likeBtn.classList.toggle('active', liked);
     coinBtn.classList.toggle('active', coined);
-    coinBtn.disabled = coined;
-    coinBtn.title = coined ? T('coinedTitle') : T('coinTitle');
+    coinBtn.disabled = coined || isOwn;
+    coinBtn.classList.toggle('coin-own', isOwn);
+    coinBtn.title = isOwn ? T('coinOwn') : (coined ? T('coinedTitle') : T('coinTitle'));
     document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
 }
 
