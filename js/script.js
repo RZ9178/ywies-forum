@@ -84,6 +84,9 @@ window.addEventListener('DOMContentLoaded', function () {
     });
     const refreshBtn = document.getElementById('refreshBtn');
     if (refreshBtn) refreshBtn.addEventListener('click', refreshSite);
+    window.addEventListener('resize', scheduleMasonry);
+    window.addEventListener('load', scheduleMasonry);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleMasonry);
 });
 
 async function refreshSite() {
@@ -284,6 +287,8 @@ function render() {
 function renderList(list) {
     const wrap = document.getElementById('postList');
     const empty = document.getElementById('emptyState');
+    wrap.classList.remove('masonry');
+    wrap.style.height = '';
     wrap.innerHTML = '';
     if (!list.length) {
         if (!allPosts.length && postsLoadFailed) { showPostsError(); return; }
@@ -293,6 +298,8 @@ function renderList(list) {
             ? '没有找到符合条件的帖子'
             : '这里还没有帖子，点右上角「发帖」发第一条吧';
         empty.hidden = false;
+        wrap.classList.remove('masonry');
+        wrap.style.height = '';
         return;
     }
     empty.hidden = true;
@@ -313,7 +320,7 @@ function renderList(list) {
         card.setAttribute('role', 'link');
         card.innerHTML =
             '<div class="card-cover' + (cover ? '' : ' no-image') + '">' +
-                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy" decoding="async">' : '') +
+                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' : '') +
                 '<svg class="icon card-cover-icon" aria-hidden="true"><use href="#i-image"></use></svg>' +
                 (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
                 '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
@@ -336,11 +343,14 @@ function renderList(list) {
 
         const img = card.querySelector('.card-cover img');
         if (img) {
+            img.addEventListener('load', scheduleMasonry);
             img.addEventListener('error', function () {
                 this.remove();
                 const box = card.querySelector('.card-cover');
                 if (box) box.classList.add('no-image');
+                scheduleMasonry();
             });
+            if (img.complete && img.naturalWidth) scheduleMasonry();
         }
 
         card.addEventListener('click', function (e) {
@@ -368,6 +378,47 @@ function renderList(list) {
         });
         wrap.appendChild(card);
     });
+    scheduleMasonry();
+}
+
+let masonryRaf = null;
+
+function scheduleMasonry() {
+    if (masonryRaf) return;
+    masonryRaf = requestAnimationFrame(function () {
+        masonryRaf = null;
+        layoutMasonry();
+    });
+}
+
+function layoutMasonry() {
+    const grid = document.getElementById('postList');
+    if (!grid) return;
+    const cards = Array.prototype.slice.call(grid.children);
+    if (!cards.length) {
+        grid.classList.remove('masonry');
+        grid.style.height = '';
+        return;
+    }
+    const width = grid.clientWidth;
+    if (!width) return;
+    grid.classList.add('masonry');
+    const vw = window.innerWidth;
+    const cols = vw <= 760 ? 2 : (vw <= 1300 ? 4 : 5);
+    const gap = cols === 2 ? 10 : 14;
+    const colWidth = (width - gap * (cols - 1)) / cols;
+    const heights = new Array(cols).fill(0);
+    cards.forEach(function (card) {
+        card.style.position = 'absolute';
+        card.style.width = colWidth + 'px';
+        let col = 0;
+        for (let i = 1; i < cols; i++) {
+            if (heights[i] < heights[col]) col = i;
+        }
+        card.style.transform = 'translate3d(' + (col * (colWidth + gap)) + 'px, ' + heights[col] + 'px, 0)';
+        heights[col] += card.offsetHeight + gap;
+    });
+    grid.style.height = (Math.max.apply(null, heights) - gap) + 'px';
 }
 
 // ---------- Tab / 搜索 / 通知 ----------

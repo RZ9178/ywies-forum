@@ -1129,28 +1129,39 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 .post-card:hover {
     border-color: var(--accent);
-    transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--shadow-dialog);
+    z-index: 2;
+}
+.post-grid.masonry {
+    display: block;
+    position: relative;
+    overflow-anchor: none;
+}
+.post-grid.masonry .post-card {
+    position: absolute;
+    top: 0;
+    left: 0;
 }
 .card-cover {
     position: relative;
-    aspect-ratio: 4 / 3;
     background: var(--bg-elev);
     overflow: hidden;
 }
 .card-cover img {
     width: 100%;
-    height: 100%;
+    height: auto;
+    max-height: 620px;
     object-fit: cover;
     display: block;
     transition: transform 0.25s;
 }
 .post-card:hover .card-cover img { transform: scale(1.03); }
 .card-cover.no-image {
+    aspect-ratio: 16 / 9;
     display: flex;
     align-items: center;
     justify-content: center;
