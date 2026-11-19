@@ -63,6 +63,12 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - `POST /api/messages/<username>`：发送，最多 1000 字，同时给对方写一条通知
 - 只能看到自己参与的会话；不能给自己发
 
+## 登录态与刷新
+
+- 登录使用 `sessions` 表，同一账号可多设备同时在线，每个 token 独立有效 30 天
+- 升级时旧 `users.token` 会自动迁入 `sessions`；退出只注销当前设备
+- 首页左下角「刷新」按钮为站内刷新：重新拉帖子/标签/通知/私信，不调用浏览器刷新
+
 ## 性能与加载
 
 - 列表/详情接口不再返回 base64 图片；历史图片走 `/media/posts/<id>`，浏览器强缓存

@@ -1618,3 +1618,31 @@ input[readonly] {
     .comment-reply .comment-actions { margin-left: 26px; }
     .reply-bar { padding: 8px 12px; }
 }
+
+/* 站内刷新按钮（左下角） */
+.refresh-float-btn {
+    position: fixed;
+    left: 20px;
+    bottom: 20px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 150;
+    box-shadow: 0 4px 14px var(--shadow-dialog);
+}
+.refresh-float-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+.refresh-float-btn .icon { width: 20px; height: 20px; }
+.refresh-float-btn.spinning .icon { animation: refresh-spin 0.7s linear infinite; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+    .refresh-float-btn { left: 16px; bottom: 16px; width: 42px; height: 42px; }
+}

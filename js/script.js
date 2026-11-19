@@ -82,7 +82,20 @@ window.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('pageshow', function (e) {
         if (e.persisted) fetchPosts();
     });
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) refreshBtn.addEventListener('click', refreshSite);
 });
+
+async function refreshSite() {
+    const btn = document.getElementById('refreshBtn');
+    if (!btn || btn.classList.contains('spinning')) return;
+    btn.classList.add('spinning');
+    try {
+        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot()]);
+    } catch (e) {}
+    setTimeout(function () { btn.classList.remove('spinning'); }, 400);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 function initAuth() {
     const logged = Auth.isLoggedIn();
@@ -99,7 +112,16 @@ function initAuth() {
         document.getElementById('adminBtn').hidden = !Auth.isAdmin();
     }
     document.getElementById('logoutBtn').addEventListener('click', function () {
+        const token = Auth.token;
         Auth.logout();
+        if (token) {
+            // 只注销当前设备，其他设备登录态保留
+            fetch('/api/logout', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                keepalive: true
+            }).catch(function () {});
+        }
         location.reload();
     });
 }

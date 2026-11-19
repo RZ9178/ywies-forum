@@ -59,7 +59,7 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_IMAGE_BYTES + 2 * 1024 * 1024
 _CODE_STORE = {}
 CODE_TTL = 300
 _SESSION_STORE = {}
-SESSION_TTL = 7 * 24 * 3600
+SESSION_TTL = 30 * 24 * 3600  # 登录态 30 天
 
 
 class _DbWrapper:
@@ -158,9 +158,17 @@ def _get_current_user():
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT id, email, username, is_admin FROM users WHERE token=? AND token_expires>?",
-            (token, time.time())
+            "SELECT u.id, u.email, u.username, u.is_admin FROM sessions s "
+            "JOIN users u ON u.username = s.username "
+            "WHERE s.token=? AND s.expires>?",
+            (token, time.time()),
         ).fetchone()
+        if not row:
+            # 兼容旧 token（users.token 单列），迁移后会自动复制进 sessions
+            row = conn.execute(
+                "SELECT id, email, username, is_admin FROM users WHERE token=? AND token_expires>?",
+                (token, time.time()),
+            ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -257,11 +265,17 @@ def register():
         )
         conn.commit()
         token = secrets.token_urlsafe(32)
+        expires = time.time() + SESSION_TTL
         # 按用户名写登录态，不依赖自增 ID（PG 下 cursor.lastrowid 取不到值）
         conn.execute(
             "UPDATE users SET token=?, token_expires=? WHERE username=?",
-            (token, time.time() + SESSION_TTL, username)
+            (token, expires, username)
         )
+        conn.execute(
+            "INSERT INTO sessions (token, username, expires) VALUES (?, ?, ?)",
+            (token, username, expires),
+        )
+        conn.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
         conn.commit()
         user_id = conn.last_id_by_key("users", "username", username)
     except sqlite3.IntegrityError:
@@ -284,10 +298,16 @@ def login():
         if not check_password_hash(row["password"], password):
             return jsonify({"error": "昵称或密码不对"}), 401
         token = secrets.token_urlsafe(32)
+        expires = time.time() + SESSION_TTL
         conn.execute(
             "UPDATE users SET token=?, token_expires=? WHERE id=?",
-            (token, time.time() + SESSION_TTL, row["id"])
+            (token, expires, row["id"])
         )
+        conn.execute(
+            "INSERT INTO sessions (token, username, expires) VALUES (?, ?, ?)",
+            (token, row["username"], expires),
+        )
+        conn.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
         conn.commit()
         return jsonify({
             "token": token,
@@ -408,6 +428,23 @@ def _row_to_dict(row, reply_count=None):
         "replies": reply_count if reply_count is not None else 0,
         "created_at": _fmt_time(row["created_at"]),
     }
+
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:].strip()
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+            conn.execute(
+                "UPDATE users SET token='', token_expires=0 WHERE token=?", (token,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/posts", methods=["GET"])
@@ -1063,6 +1100,7 @@ def admin_delete_user(uid):
         conn.execute("DELETE FROM messages WHERE sender=? OR receiver=?", (username, username))
         conn.execute("DELETE FROM comment_likes WHERE username=?", (username,))
         conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
+        conn.execute("DELETE FROM sessions WHERE username=?", (username,))
         conn.execute("DELETE FROM users WHERE id=?", (uid,))
         conn.commit()
         return jsonify({"ok": True})
@@ -1167,6 +1205,14 @@ def _migrate():
                     UNIQUE (comment_id, username)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    expires INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1197,6 +1243,14 @@ def _migrate():
                     username TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (comment_id, username)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    expires INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             conn.commit()
@@ -1242,6 +1296,24 @@ def _migrate():
                     conn.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
                     print("[迁移] 已重建 users.token 列为 TEXT")
         conn.commit()
+
+        # 登录态迁移：把旧 users.token 复制进 sessions，升级后不用重新登录
+        try:
+            conn.execute("DELETE FROM sessions WHERE expires<=?", (time.time(),))
+            legacy = conn.execute(
+                "SELECT username, token, token_expires FROM users "
+                "WHERE token IS NOT NULL AND token<>'' AND token_expires>?",
+                (time.time(),),
+            ).fetchall()
+            for r in legacy:
+                conn.execute(
+                    "INSERT INTO sessions (token, username, expires) VALUES (?, ?, ?) "
+                    "ON CONFLICT (token) DO NOTHING",
+                    (r["token"], r["username"], r["token_expires"]),
+                )
+            conn.commit()
+        except Exception as e:
+            print(f"[迁移] 登录态迁移跳过：{e}")
 
         # 兼容老库：帖子配图列曾叫 image，把内容搬到新列 image_url（旧列保留不动）
         if "image" in col_sets.get("posts", set()):

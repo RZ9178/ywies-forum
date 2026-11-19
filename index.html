@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YWIES 论坛</title>
-    <link rel="stylesheet" href="style.css?v=20261119b">
+    <link rel="stylesheet" href="style.css?v=20261119c">
 </head>
 <body>
 
@@ -17,6 +17,7 @@
         <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9.5 9.5h5M9.5 14.5h5M12 8v8"/></symbol>
         <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m5 17 4.5-4.5 3 3L16 11.5l3 3"/></symbol>
         <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></symbol>
     </svg>
 
     <!-- 顶部导航 -->
@@ -224,6 +225,11 @@
         <a class="image-viewer-download" id="imageViewerDownload">下载图片</a>
     </div>
 
+    <!-- 站内刷新（不调用浏览器刷新） -->
+    <button type="button" class="refresh-float-btn" id="refreshBtn" title="刷新帖子" aria-label="刷新帖子">
+        <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg>
+    </button>
+
     <!-- AI 聊天窗口 - 耀耀 -->
     <button class="chat-float-btn" id="chatToggleBtn" title="和耀耀聊天">
         <img src="mascot.png" alt="耀耀">
@@ -245,9 +251,9 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261119b"></script>
-    <script src="js/language.js?v=20261119b"></script>
-    <script src="js/chat.js?v=20261119b"></script>
-    <script src="js/script.js?v=20261119b"></script>
+    <script src="js/auth.js?v=20261119c"></script>
+    <script src="js/language.js?v=20261119c"></script>
+    <script src="js/chat.js?v=20261119c"></script>
+    <script src="js/script.js?v=20261119c"></script>
 </body>
 </html>
