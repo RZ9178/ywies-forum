@@ -116,26 +116,28 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .tab-inner {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 0 20px;
+    padding: 6px 20px;
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
     overflow-x: auto;
 }
 .tab {
-    padding: 11px 16px;
+    padding: 7px 15px;
     font-size: 14px;
     color: var(--text-dim);
-    border-bottom: 2px solid transparent;
+    border-radius: 999px;
     white-space: nowrap;
     font-weight: 500;
-    transition: color 0.15s;
+    transition: color 0.15s, background 0.15s;
 }
-.tab:hover { color: var(--text); }
+.tab:hover { color: var(--text); background: var(--bg-hover); }
 .tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
+    color: #ffffff;
+    background: var(--accent);
     font-weight: 600;
 }
+.tab.active:hover { color: #ffffff; background: var(--accent-hover); }
 
 /* ---------- 标签筛选 ---------- */
 .tag-bar {
@@ -542,6 +544,16 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     white-space: pre-wrap;
     word-break: break-word;
 }
+.detail-content a,
+.comment-text a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-all;
+}
+.detail-content a:hover,
+.comment-text a:hover { color: var(--accent-hover); }
+
 .detail-time {
     margin-top: 16px;
     font-size: 12px;
@@ -657,8 +669,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .footer-input input:focus { border-color: var(--accent); }
 .footer-btn {
-    display: flex; align-items: center; gap: 6px;
-    padding: 8px 9px;
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 10px;
     background: transparent;
     border: none;
     border-radius: 0;
@@ -667,7 +679,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     cursor: pointer;
     white-space: nowrap;
 }
-.footer-btn .icon { width: 20px; height: 20px; }
+.footer-btn .icon { width: 24px; height: 24px; }
 .footer-more { padding: 8px 6px; }
 .icon-more { fill: currentColor; stroke: none; }
 .footer-btn:hover { color: var(--accent); }
@@ -1181,7 +1193,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     display: flex;
     flex-direction: column;
     background: var(--bg);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;

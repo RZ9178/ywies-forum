@@ -1694,8 +1694,8 @@ def _migrate():
                 "SELECT 1 FROM posts p WHERE p.id = post_coins.post_id AND p.author = post_coins.username)"
             )
             conn.execute(
-                "UPDATE posts SET coins = COALESCE(("
-                "SELECT SUM(pc.amount) FROM post_coins pc WHERE pc.post_id = posts.id), 0)"
+                "UPDATE posts SET coins = CAST(COALESCE(("
+                "SELECT SUM(pc.amount) FROM post_coins pc WHERE pc.post_id = posts.id), 0) AS INTEGER)"
             )
             conn.commit()
         except Exception as e:

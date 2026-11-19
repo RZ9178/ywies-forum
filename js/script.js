@@ -1045,7 +1045,7 @@ function renderDetail() {
     document.getElementById('detailAuthorName').textContent = p.author || T('anonymous');
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || T('untitled');
-    document.getElementById('detailContent').textContent = p.content || '';
+    document.getElementById('detailContent').innerHTML = linkify(p.content || '');
     document.getElementById('detailTime').textContent = formatTime(p);
     document.getElementById('commentCount').textContent = allComments.length;
     // 登录后显示用户名
@@ -1117,7 +1117,7 @@ function commentHtml(c, opts) {
             (!isReply ? '<span class="comment-floor">' + (opts.floor || 0) + 'F</span>' : '') +
             (canDel ? '<button class="comment-del" data-cid="' + c.id + '" title="' + T('delete') + '">' + T('deleteShort') + '</button>' : '') +
         '</div>' +
-        '<div class="comment-text">' + escapeHtml(c.content) + '</div>' +
+        '<div class="comment-text">' + linkify(c.content) + '</div>' +
         '<div class="comment-actions">' +
             '<button type="button" class="comment-action comment-like' + (liked ? ' active' : '') + '" data-cid="' + c.id + '" title="' + T('like') + '">' +
                 '<svg class="icon icon-heart" aria-hidden="true"><use href="#i-like"></use></svg><span>' + (c.likes || 0) + '</span>' +
@@ -1813,4 +1813,34 @@ function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+}
+
+function linkify(text) {
+    const raw = String(text == null ? '' : text);
+    const re = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+        out += escapeHtml(raw.slice(last, m.index));
+        let url = m[0];
+        let trailing = '';
+        const tm = url.match(/[.,!?;:，。！？；：、)）\]】]+$/);
+        if (tm) {
+            trailing = tm[0];
+            url = url.slice(0, -trailing.length);
+        }
+        if (!url) {
+            out += escapeHtml(m[0]);
+            last = re.lastIndex;
+            continue;
+        }
+        const href = /^www\./i.test(url) ? 'https://' + url : url;
+        out += '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' +
+            escapeHtml(url) + '</a>' + escapeHtml(trailing);
+        last = m.index + url.length;
+        re.lastIndex = last;
+    }
+    out += escapeHtml(raw.slice(last));
+    return out;
 }
