@@ -787,8 +787,11 @@ function bindDetailModal() {
             window.location.href = 'login.html';
             return;
         }
-        // 本地记录决定这次是「赞」还是「取消赞」；计数以服务端返回为准
-        const on = getLiked().indexOf(currentPost.id) === -1;
+        // 以服务端 liked 为准；本地记录只作为旧接口兜底
+        const likedBefore = currentPost.liked !== undefined
+            ? !!currentPost.liked
+            : (getLiked().indexOf(currentPost.id) !== -1);
+        const on = !likedBefore;
         btn.disabled = true;
         try {
             const res = await Auth.post(API + '/' + currentPost.id + '/like', { on: on });
@@ -798,10 +801,13 @@ function bindDetailModal() {
             }
             const data = await res.json();
             currentPost.likes = data.likes;
+            currentPost.liked = (typeof data.liked === 'boolean') ? data.liked : on;
+            const inList = allPosts.find(function (x) { return x.id === currentPost.id; });
+            if (inList) { inList.likes = currentPost.likes; inList.liked = currentPost.liked; }
             const liked = getLiked();
             const idx = liked.indexOf(currentPost.id);
-            if (on && idx === -1) liked.push(currentPost.id);
-            if (!on && idx !== -1) liked.splice(idx, 1);
+            if (currentPost.liked && idx === -1) liked.push(currentPost.id);
+            if (!currentPost.liked && idx !== -1) liked.splice(idx, 1);
             localStorage.setItem(K_LIKED, JSON.stringify(liked));
             updateFooterButtons();
         } catch (e) {
@@ -819,26 +825,33 @@ function bindDetailModal() {
             window.location.href = 'login.html';
             return;
         }
-        const on = getCoined().indexOf(currentPost.id) === -1;
+        const alreadyCoined = currentPost.coined !== undefined
+            ? !!currentPost.coined
+            : (getCoined().indexOf(currentPost.id) !== -1);
+        if (alreadyCoined) {
+            alert('投币后不能撤回');
+            updateFooterButtons();
+            return;
+        }
+        if (!confirm('投币后不能撤回，确定投币吗？')) return;
         btn.disabled = true;
         try {
-            const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: on });
+            const res = await Auth.post(API + '/' + currentPost.id + '/coin', { on: true });
             if (!res.ok) {
                 const err = await res.json().catch(function () { return {}; });
                 throw new Error(err.error || '投币失败');
             }
             const data = await res.json();
             currentPost.coins = data.coins;
+            currentPost.coined = (typeof data.coined === 'boolean') ? data.coined : true;
             const coined = getCoined();
-            const idx = coined.indexOf(currentPost.id);
-            if (on && idx === -1) coined.push(currentPost.id);
-            if (!on && idx !== -1) coined.splice(idx, 1);
+            if (coined.indexOf(currentPost.id) === -1) coined.push(currentPost.id);
             localStorage.setItem(K_COINED, JSON.stringify(coined));
             updateFooterButtons();
         } catch (e) {
             alert('投币失败：' + e.message);
         } finally {
-            btn.disabled = false;
+            btn.disabled = !!(currentPost && currentPost.coined);
         }
     });
     document.getElementById('footerStar').addEventListener('click', function () {
@@ -1547,12 +1560,22 @@ function closeImageViewer() {
 
 function updateFooterButtons() {
     if (!currentPost) return;
-    const liked = getLiked(), coined = getCoined(), bm = getBookmarks();
+    const bm = getBookmarks();
+    const liked = currentPost.liked !== undefined
+        ? !!currentPost.liked
+        : (getLiked().indexOf(currentPost.id) !== -1);
+    const coined = currentPost.coined !== undefined
+        ? !!currentPost.coined
+        : (getCoined().indexOf(currentPost.id) !== -1);
     document.getElementById('footerLikeCount').textContent = currentPost.likes || 0;
     document.getElementById('footerCoinCount').textContent = currentPost.coins || 0;
     document.getElementById('footerStarCount').textContent = bm.indexOf(currentPost.id) !== -1 ? 1 : 0;
-    document.getElementById('footerLike').classList.toggle('active', liked.indexOf(currentPost.id) !== -1);
-    document.getElementById('footerCoin').classList.toggle('active', coined.indexOf(currentPost.id) !== -1);
+    const likeBtn = document.getElementById('footerLike');
+    const coinBtn = document.getElementById('footerCoin');
+    likeBtn.classList.toggle('active', liked);
+    coinBtn.classList.toggle('active', coined);
+    coinBtn.disabled = coined;
+    coinBtn.title = coined ? '已投币（不可撤回）' : '硬币（投出后不可撤回）';
     document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
 }
 

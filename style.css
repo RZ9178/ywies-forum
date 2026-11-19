@@ -1646,3 +1646,9 @@ input[readonly] {
 @media (max-width: 760px) {
     .refresh-float-btn { left: 16px; bottom: 16px; width: 42px; height: 42px; }
 }
+
+/* 投币后按钮禁用，不可撤回 */
+.footer-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}

@@ -55,6 +55,12 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 唯一真源：`backend/app.py` 的 `LEVEL_IMAGE_LIMITS` / `LEVEL_POST_THRESHOLDS`
 - `/api/config` 按当前登录用户返回 `level` 与 `max_post_images`
 
+## 点赞与投币
+
+- 帖子点赞：`post_likes` 按账号去重，可点赞/取消，换设备状态一致
+- 帖子投币：`post_coins` 按账号去重，投出后不能撤回（接口拒绝 `on:false`，按钮禁用）
+- 首次升级会清零没有账号归属的历史帖子点赞/投币计数
+
 ## 私信
 
 - `messages` 表：sender / receiver / content / is_read / created_at

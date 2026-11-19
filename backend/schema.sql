@@ -1,6 +1,8 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS post_coins;
+DROP TABLE IF EXISTS post_likes;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS comment_likes;
 DROP TABLE IF EXISTS messages;
@@ -75,4 +77,20 @@ CREATE TABLE sessions (
     username    TEXT NOT NULL,
     expires     INTEGER NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE post_likes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (post_id, username)
+);
+
+CREATE TABLE post_coins (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (post_id, username)
 );

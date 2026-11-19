@@ -394,7 +394,7 @@ def _parse_images(raw):
     return [u for u in value if isinstance(u, str) and u.strip()]
 
 
-def _row_to_dict(row, reply_count=None):
+def _row_to_dict(row, reply_count=None, liked=False, coined=False):
     keys = row.keys()
     images = _parse_images(row["images"]) if "images" in keys else []
     cover = row["image_url"] or ""
@@ -425,6 +425,8 @@ def _row_to_dict(row, reply_count=None):
         "views": row["views"],
         "likes": row["likes"] if "likes" in keys else 0,
         "coins": row["coins"] if "coins" in keys else 0,
+        "liked": bool(liked),
+        "coined": bool(coined),
         "replies": reply_count if reply_count is not None else 0,
         "created_at": _fmt_time(row["created_at"]),
     }
@@ -519,6 +521,7 @@ def create_post():
 
 @app.route("/api/posts/<int:post_id>", methods=["GET"])
 def get_post(post_id):
+    user = _get_current_user()
     conn = get_db()
     try:
         exists = conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone()
@@ -533,7 +536,18 @@ def get_post(post_id):
         ).fetchone()
         if not row:
             return jsonify({"error": "帖子不存在"}), 404
-        return jsonify(_row_to_dict(row, row["reply_count"]))
+        liked = False
+        coined = False
+        if user:
+            liked = conn.execute(
+                "SELECT 1 AS x FROM post_likes WHERE post_id=? AND username=?",
+                (post_id, user["username"]),
+            ).fetchone() is not None
+            coined = conn.execute(
+                "SELECT 1 AS x FROM post_coins WHERE post_id=? AND username=?",
+                (post_id, user["username"]),
+            ).fetchone() is not None
+        return jsonify(_row_to_dict(row, row["reply_count"], liked=liked, coined=coined))
     finally:
         conn.close()
 
@@ -619,6 +633,8 @@ def delete_post(post_id):
             "(SELECT id FROM comments WHERE post_id=?)",
             (post_id,),
         )
+        conn.execute("DELETE FROM post_likes WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM post_coins WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
         conn.commit()
@@ -632,23 +648,39 @@ def delete_post(post_id):
 def toggle_like(post_id):
     data = request.get_json(silent=True) or {}
     on = bool(data.get("on"))
+    me = request.current_user["username"]
     conn = get_db()
     try:
         if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
             return jsonify({"error": "帖子不存在"}), 404
+        changed = False
         if on:
-            conn.execute("UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (post_id,))
-        else:
-            conn.execute(
-                "UPDATE posts SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
-                (post_id,),
+            cur = conn.execute(
+                "INSERT INTO post_likes (post_id, username) VALUES (?, ?) "
+                "ON CONFLICT (post_id, username) DO NOTHING",
+                (post_id, me),
             )
+            changed = cur.rowcount > 0
+            if changed:
+                conn.execute("UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (post_id,))
+        else:
+            cur = conn.execute(
+                "DELETE FROM post_likes WHERE post_id=? AND username=?", (post_id, me)
+            )
+            changed = cur.rowcount > 0
+            if changed:
+                conn.execute(
+                    "UPDATE posts SET likes = CASE WHEN likes > 0 THEN likes - 1 ELSE 0 END WHERE id=?",
+                    (post_id,),
+                )
         conn.commit()
-        # commit 后 cursor 结果集清空，重新 SELECT 拿真实值
         row = conn.execute("SELECT likes FROM posts WHERE id=?", (post_id,)).fetchone()
         if not row:
             return jsonify({"error": "帖子不存在"}), 404
-        return jsonify({"likes": row["likes"]})
+        liked = conn.execute(
+            "SELECT 1 AS x FROM post_likes WHERE post_id=? AND username=?", (post_id, me)
+        ).fetchone() is not None
+        return jsonify({"likes": row["likes"], "liked": liked})
     finally:
         conn.close()
 
@@ -658,22 +690,25 @@ def toggle_like(post_id):
 def toggle_coin(post_id):
     data = request.get_json(silent=True) or {}
     on = bool(data.get("on"))
+    me = request.current_user["username"]
     conn = get_db()
     try:
         if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
             return jsonify({"error": "帖子不存在"}), 404
-        if on:
+        if not on:
+            return jsonify({"error": "投币后不能撤回"}), 400
+        cur = conn.execute(
+            "INSERT INTO post_coins (post_id, username) VALUES (?, ?) "
+            "ON CONFLICT (post_id, username) DO NOTHING",
+            (post_id, me),
+        )
+        if cur.rowcount > 0:
             conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + 1 WHERE id=?", (post_id,))
-        else:
-            conn.execute(
-                "UPDATE posts SET coins = CASE WHEN coins > 0 THEN coins - 1 ELSE 0 END WHERE id=?",
-                (post_id,),
-            )
         conn.commit()
         row = conn.execute("SELECT coins FROM posts WHERE id=?", (post_id,)).fetchone()
         if not row:
             return jsonify({"error": "帖子不存在"}), 404
-        return jsonify({"coins": row["coins"]})
+        return jsonify({"coins": row["coins"], "coined": True})
     finally:
         conn.close()
 
@@ -1100,6 +1135,16 @@ def admin_delete_user(uid):
         conn.execute("DELETE FROM messages WHERE sender=? OR receiver=?", (username, username))
         conn.execute("DELETE FROM comment_likes WHERE username=?", (username,))
         conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
+        conn.execute("DELETE FROM post_likes WHERE username=?", (username,))
+        conn.execute("DELETE FROM post_coins WHERE username=?", (username,))
+        conn.execute(
+            "DELETE FROM post_likes WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
+            (username,),
+        )
+        conn.execute(
+            "DELETE FROM post_coins WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
+            (username,),
+        )
         conn.execute("DELETE FROM sessions WHERE username=?", (username,))
         conn.execute("DELETE FROM users WHERE id=?", (uid,))
         conn.commit()
@@ -1136,6 +1181,28 @@ def _migrate():
                 ).fetchone() is not None
         except Exception:
             has_likes_table = True
+        # 首次创建 post_likes / post_coins 时，历史计数无法归属账号，需要清零
+        try:
+            if is_pg:
+                has_post_likes_table = conn.execute(
+                    "SELECT 1 AS x FROM information_schema.tables "
+                    "WHERE table_schema='public' AND table_name='post_likes'"
+                ).fetchone() is not None
+                has_post_coins_table = conn.execute(
+                    "SELECT 1 AS x FROM information_schema.tables "
+                    "WHERE table_schema='public' AND table_name='post_coins'"
+                ).fetchone() is not None
+            else:
+                has_post_likes_table = conn.execute(
+                    "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='post_likes'"
+                ).fetchone() is not None
+                has_post_coins_table = conn.execute(
+                    "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='post_coins'"
+                ).fetchone() is not None
+        except Exception:
+            has_post_likes_table = True
+            has_post_coins_table = True
+        has_post_reactions = has_post_likes_table and has_post_coins_table
         if is_pg:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -1213,6 +1280,24 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_likes (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_coins (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1253,6 +1338,24 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_likes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_coins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
+                )
+            """)
             conn.commit()
 
         if not has_likes_table:
@@ -1263,6 +1366,17 @@ def _migrate():
                 print("[迁移] 初始化评论点赞：历史计数已清零（从现在起按账号去重）")
             except Exception as e:
                 print(f"[迁移] 评论点赞计数清零跳过：{e}")
+
+        if not has_post_reactions:
+            # 帖子点赞/投币改为按账号记录；旧计数无法归属，一次性归零
+            try:
+                conn.execute("DELETE FROM post_likes")
+                conn.execute("DELETE FROM post_coins")
+                conn.execute("UPDATE posts SET likes=0, coins=0")
+                conn.commit()
+                print("[迁移] 初始化帖子点赞/投币：历史计数已清零（从现在起按账号去重）")
+            except Exception as e:
+                print(f"[迁移] 帖子点赞/投币计数清零跳过：{e}")
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
         text_cols = {"tags", "email", "token", "image_url", "images", "reply_to"}
@@ -1331,9 +1445,11 @@ def _migrate():
         # 清理已删评论留下的点赞记录（幂等）
         try:
             conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
+            conn.execute("DELETE FROM post_likes WHERE post_id NOT IN (SELECT id FROM posts)")
+            conn.execute("DELETE FROM post_coins WHERE post_id NOT IN (SELECT id FROM posts)")
             conn.commit()
         except Exception as e:
-            print(f"[迁移] 评论点赞清理跳过：{e}")
+            print(f"[迁移] 点赞/投币清理跳过：{e}")
 
         # 常用查询加索引（幂等，SQLite / PostgreSQL 都支持）
         for ddl in (
