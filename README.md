@@ -69,6 +69,13 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - `POST /api/messages/<username>`：发送，最多 1000 字，同时给对方写一条通知
 - 只能看到自己参与的会话；不能给自己发
 
+## Render 免费实例休眠
+
+- Render Free 闲置约 15 分钟会休眠，下次访问会显示 “APPLICATION LOADING”，冷启动约 20–50 秒
+- 想彻底消除：升级 Render Starter（常驻实例）
+- 免费方案：用 UptimeRobot 等外部监控每 5 分钟请求一次 `/api/health`，保持实例与 Supabase 活跃
+- 注意免费额度约 750 实例小时/月，24/7 运行约 744 小时，不要超额
+
 ## 登录态与刷新
 
 - 登录使用 `sessions` 表，同一账号可多设备同时在线，每个 token 独立有效 30 天
