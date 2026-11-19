@@ -440,8 +440,9 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     border: 1px solid var(--border);
     border-radius: 14px;
     width: 100%;
-    max-width: 1080px;
-    max-height: 90vh;
+    max-width: 1320px;
+    height: 88vh;
+    max-height: 92vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -468,7 +469,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 /* 三栏布局 */
 .detail-grid {
     display: grid;
-    grid-template-columns: 280px 1fr 340px;
+    grid-template-columns: 380px minmax(0, 1fr) 400px;
     gap: 0;
     flex: 1;
     overflow: hidden;
@@ -644,17 +645,37 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .footer-input input:focus { border-color: var(--accent); }
 .footer-btn {
     display: flex; align-items: center; gap: 4px;
-    padding: 8px 12px;
+    padding: 6px 8px;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 20px;
+    border: none;
+    border-radius: 0;
     color: var(--text);
     font-size: 14px;
     cursor: pointer;
     white-space: nowrap;
 }
-.footer-btn:hover { border-color: var(--accent); color: var(--accent); }
-.footer-btn.active { color: var(--danger); border-color: var(--danger); }
+.footer-btn:hover { color: var(--accent); }
+.footer-btn.active { color: var(--danger); }
+#footerCoin.active,
+#footerStar.active { color: var(--accent); }
+
+/* 窄屏桌面 / 平板横屏：收紧两侧栏，给正文留空间 */
+@media (max-width: 1180px) {
+    .detail-grid { grid-template-columns: 300px minmax(0, 1fr) 340px; }
+}
+@media (max-width: 1000px) {
+    .detail-grid { grid-template-columns: 240px minmax(0, 1fr) 280px; }
+}
+
+/* 无图帖子：详情不显示空白图片列 */
+.detail-grid.no-image { grid-template-columns: minmax(0, 1fr) 400px; }
+.detail-grid.no-image .detail-img-col { display: none; }
+@media (max-width: 1180px) {
+    .detail-grid.no-image { grid-template-columns: minmax(0, 1fr) 340px; }
+}
+@media (max-width: 1000px) {
+    .detail-grid.no-image { grid-template-columns: minmax(0, 1fr) 280px; }
+}
 
 /* 手机端：弹窗单列堆叠 */
 @media (max-width: 768px) {
@@ -1634,6 +1655,7 @@ input[readonly] {
     .comment-actions { margin-left: 30px; gap: 10px; }
     .comment-reply .comment-text,
     .comment-reply .comment-actions { margin-left: 26px; }
+    .comment-replies-toggle { margin-left: 26px; }
     .reply-bar { padding: 8px 12px; }
 }
 
@@ -1665,8 +1687,75 @@ input[readonly] {
     .refresh-float-btn { left: 16px; bottom: 16px; width: 42px; height: 42px; }
 }
 
+/* 无图帖子：纯文字卡片 */
+.post-card.no-cover .card-body {
+    padding: 12px;
+    gap: 6px;
+}
+.post-card.no-cover .card-title { min-height: 0; }
+.card-text-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+}
+.card-unread-inline {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--unread);
+    flex-shrink: 0;
+}
+.card-tag-inline {
+    position: static;
+    left: auto;
+    bottom: auto;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: var(--accent-soft);
+    backdrop-filter: none;
+}
+.card-text-top .card-star {
+    position: static;
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    color: var(--text-dim);
+}
+.card-text-top .card-star:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+}
+.card-text-top .card-star.starred { color: var(--accent); }
+.card-excerpt {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+/* 回复折叠 */
+.comment-replies-toggle {
+    display: block;
+    margin: 6px 0 2px 30px;
+    font-size: 11px;
+    color: var(--accent);
+}
+.comment-replies-toggle:hover { text-decoration: underline; }
+
 /* 投币后按钮禁用，不可撤回 */
 .footer-btn:disabled {
     opacity: 0.65;
     cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+    .detail-grid.no-image { grid-template-columns: 1fr; }
 }

@@ -14,6 +14,7 @@ let currentPost = null;
 let allComments = [];
 let commentSort = 'earliest';
 let replyTarget = null;
+let expandedReplyThreads = {};
 let selectedTags = [];
 let uploadedImages = [];
 let maxPostImages = 3;
@@ -313,33 +314,51 @@ function renderList(list) {
         const firstTag = (p.tags || '').split(',')[0].trim();
         const cover = getPostImages(p)[0] || '';
 
+        const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        const starBtn = '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
+                '<svg class="icon" aria-hidden="true"><use href="#i-star"></use></svg>' +
+            '</button>';
+        const metaHtml = '<div class="card-meta">' +
+                '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a>' +
+                '<span class="card-time">' + formatTime(p.created_at) + '</span>' +
+            '</div>' +
+            '<div class="card-stats">' +
+                '<span title="点赞"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
+                '<span title="浏览"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
+                '<span title="回复"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
+            '</div>';
+
         const card = document.createElement('article');
-        card.className = 'post-card' + (isRead ? ' is-read' : '');
         card.setAttribute('data-id', p.id);
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
-        card.innerHTML =
-            '<div class="card-cover' + (cover ? '' : ' no-image') + '">' +
-                (cover ? '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' : '') +
-                '<svg class="icon card-cover-icon" aria-hidden="true"><use href="#i-image"></use></svg>' +
-                (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
-                '<button class="star-btn card-star' + (isBm ? ' starred' : '') + '" data-id="' + p.id + '" title="收藏" aria-label="收藏">' +
-                    '<svg class="icon" aria-hidden="true"><use href="#i-star"></use></svg>' +
-                '</button>' +
-                (firstTag ? '<span class="post-tag card-tag">' + escapeHtml(firstTag) + '</span>' : '') +
-            '</div>' +
-            '<div class="card-body">' +
-                '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
-                '<div class="card-meta">' +
-                    '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || '匿名') + '</a>' +
-                    '<span class="card-time">' + formatTime(p.created_at) + '</span>' +
+        if (cover) {
+            card.className = 'post-card' + (isRead ? ' is-read' : '');
+            card.innerHTML =
+                '<div class="card-cover">' +
+                    '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
+                    (!isRead ? '<span class="card-unread" title="未读"></span>' : '') +
+                    starBtn +
+                    (firstTag ? '<span class="post-tag card-tag">' + escapeHtml(firstTag) + '</span>' : '') +
                 '</div>' +
-                '<div class="card-stats">' +
-                    '<span title="点赞"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
-                    '<span title="浏览"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
-                    '<span title="回复"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
-                '</div>' +
-            '</div>';
+                '<div class="card-body">' +
+                    '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
+                    metaHtml +
+                '</div>';
+        } else {
+            card.className = 'post-card no-cover' + (isRead ? ' is-read' : '');
+            card.innerHTML =
+                '<div class="card-body">' +
+                    '<div class="card-text-top">' +
+                        (!isRead ? '<span class="card-unread-inline" title="未读"></span>' : '') +
+                        (firstTag ? '<span class="post-tag card-tag card-tag-inline">' + escapeHtml(firstTag) + '</span>' : '') +
+                        starBtn +
+                    '</div>' +
+                    '<h3 class="card-title">' + escapeHtml(p.title || '无标题') + '</h3>' +
+                    (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
+                    metaHtml +
+                '</div>';
+        }
 
         const img = card.querySelector('.card-cover img');
         if (img) {
@@ -934,6 +953,7 @@ async function openDetail(postId) {
 function closeDetail() {
     closeImageViewer();
     resetReplyTarget();
+    expandedReplyThreads = {};
     document.getElementById('detailModal').hidden = true;
     document.body.style.overflow = '';
     currentPost = null;
@@ -944,9 +964,12 @@ function closeDetail() {
 function renderDetail() {
     const p = currentPost;
     resetReplyTarget();
+    expandedReplyThreads = {};
     detailImages = getPostImages(p);
     detailImageIndex = 0;
     renderDetailImages();
+    const detailGrid = document.querySelector('.detail-grid');
+    if (detailGrid) detailGrid.classList.toggle('no-image', !detailImages.length);
     document.getElementById('detailAuthorName').textContent = p.author || '匿名';
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || '无标题';
@@ -1070,12 +1093,22 @@ function renderComments() {
     const ordered = commentSort === 'latest' ? roots.slice().reverse() : roots;
     list.innerHTML = ordered.map(function (root) {
         const replies = children[root.id] || [];
-        return commentHtml(root, { floor: floorMap[root.id] }) +
-            (replies.length
-                ? '<div class="comment-replies">' + replies.map(function (r) {
+        let html = commentHtml(root, { floor: floorMap[root.id] });
+        if (replies.length) {
+            const expanded = !!expandedReplyThreads[root.id];
+            const shown = expanded ? replies : replies.slice(0, 1);
+            html += '<div class="comment-replies">' +
+                shown.map(function (r) {
                     return commentHtml(r, { isReply: true });
-                }).join('') + '</div>'
-                : '');
+                }).join('');
+            if (replies.length > 1) {
+                html += '<button type="button" class="comment-replies-toggle" data-root="' + root.id + '">' +
+                    (expanded ? '收起回复' : '展开其余 ' + (replies.length - 1) + ' 条回复') +
+                '</button>';
+            }
+            html += '</div>';
+        }
+        return html;
     }).join('');
     bindCommentActions();
 }
@@ -1137,6 +1170,16 @@ function bindCommentActions() {
             }
         });
     });
+    list.querySelectorAll('.comment-replies-toggle').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const rid = Number(this.getAttribute('data-root'));
+            if (expandedReplyThreads[rid]) delete expandedReplyThreads[rid];
+            else expandedReplyThreads[rid] = true;
+            const scrollTop = list.scrollTop;
+            renderComments();
+            list.scrollTop = scrollTop;
+        });
+    });
     list.querySelectorAll('.comment-reply-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const cid = Number(this.getAttribute('data-cid'));
@@ -1169,7 +1212,12 @@ async function submitComment() {
     const text = input.value.trim();
     if (!text || !currentPost) return;
     const payload = { content: text };
-    if (replyTarget) payload.parent_id = replyTarget.id;
+    let rootToExpand = 0;
+    if (replyTarget) {
+        payload.parent_id = replyTarget.id;
+        const target = allComments.find(function (c) { return c.id === replyTarget.id; });
+        rootToExpand = target ? (target.parent_id || target.id) : replyTarget.id;
+    }
     try {
         const res = await Auth.post(API + '/' + currentPost.id + '/comments', payload);
         if (!res.ok) {
@@ -1178,6 +1226,7 @@ async function submitComment() {
         }
         input.value = '';
         resetReplyTarget();
+        if (rootToExpand) expandedReplyThreads[rootToExpand] = true;
         await reloadComments();
         const list = document.getElementById('commentsList');
         if (list) list.scrollTop = commentSort === 'latest' ? 0 : list.scrollHeight;
