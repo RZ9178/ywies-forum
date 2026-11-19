@@ -20,7 +20,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import secrets
 import time
 import uuid
@@ -365,6 +365,78 @@ def chat():
     return jsonify({"reply": reply})
 
 
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+_EN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _parse_utc(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _relative_time_labels(value):
+    """非管理员看到的相对时间：刚刚/N分钟前/N小时前/N天前，超过29天只给日期。"""
+    dt = _parse_utc(value)
+    if not dt:
+        return "", ""
+    now = datetime.now(timezone.utc)
+    diff = max(0, int((now - dt).total_seconds()))
+    if diff < 60:
+        return "刚刚", "Just now"
+    if diff < 3600:
+        n = diff // 60
+        return f"{n}分钟前", f"{n} min ago"
+    if diff < 86400:
+        n = diff // 3600
+        return f"{n}小时前", f"{n} hr ago"
+    if diff < 30 * 86400:
+        n = diff // 86400
+        return f"{n}天前", f"{n} day ago" if n == 1 else f"{n} days ago"
+    local = dt.astimezone(SHANGHAI_TZ)
+    now_local = now.astimezone(SHANGHAI_TZ)
+    month = _EN_MONTHS[local.month - 1]
+    if local.year != now_local.year:
+        return f"{local.year}年{local.month}月{local.day}日", f"{month} {local.day}, {local.year}"
+    return f"{local.month}月{local.day}日", f"{month} {local.day}"
+
+
+def _time_fields(value, viewer_admin=False, key="created_at"):
+    zh, en = _relative_time_labels(value)
+    return {
+        key: _fmt_time(value) if viewer_admin else "",
+        key + "_zh": zh,
+        key + "_en": en,
+    }
+
+
+def _log_audit(conn, action, actor, target_type, target_id, post_id=0, content=""):
+    """记录删除等管理动作，保留内容快照，供管理员事后调查。"""
+    try:
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False)
+        conn.execute(
+            "INSERT INTO audit_log (action, actor, target_type, target_id, post_id, content) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (action, actor or "", target_type or "", int(target_id or 0), int(post_id or 0), content or ""),
+        )
+    except Exception as e:
+        print(f"[审计] 写入失败：{e}")
+
+
 def _fmt_time(value):
     """把数据库时间统一成 'YYYY-MM-DD HH:MM:SS'（UTC）。
     PostgreSQL 返回 datetime 对象（Flask 会序列化成英文 HTTP 日期），
@@ -394,7 +466,7 @@ def _parse_images(raw):
     return [u for u in value if isinstance(u, str) and u.strip()]
 
 
-def _row_to_dict(row, reply_count=None, liked=False, coined=False):
+def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=False):
     keys = row.keys()
     images = _parse_images(row["images"]) if "images" in keys else []
     cover = row["image_url"] or ""
@@ -428,7 +500,7 @@ def _row_to_dict(row, reply_count=None, liked=False, coined=False):
         "liked": bool(liked),
         "coined": bool(coined),
         "replies": reply_count if reply_count is not None else 0,
-        "created_at": _fmt_time(row["created_at"]),
+        **_time_fields(row["created_at"], viewer_admin),
     }
 
 
@@ -451,13 +523,15 @@ def logout():
 
 @app.route("/api/posts", methods=["GET"])
 def list_posts():
+    viewer = _get_current_user()
+    viewer_admin = bool(viewer and viewer.get("is_admin"))
     conn = get_db()
     try:
         rows = conn.execute(
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
                FROM posts p ORDER BY p.id DESC"""
         ).fetchall()
-        return jsonify([_row_to_dict(r, r["reply_count"]) for r in rows])
+        return jsonify([_row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin) for r in rows])
     finally:
         conn.close()
 
@@ -514,7 +588,7 @@ def create_post():
         conn.commit()
         new_id = conn.max_id("posts")
         row = conn.execute("SELECT * FROM posts WHERE id=?", (new_id,)).fetchone()
-        return jsonify(_row_to_dict(row, 0)), 201
+        return jsonify(_row_to_dict(row, 0, viewer_admin=bool(request.current_user.get("is_admin")))), 201
     finally:
         conn.close()
 
@@ -547,7 +621,8 @@ def get_post(post_id):
                 "SELECT 1 AS x FROM post_coins WHERE post_id=? AND username=?",
                 (post_id, user["username"]),
             ).fetchone() is not None
-        return jsonify(_row_to_dict(row, row["reply_count"], liked=liked, coined=coined))
+        return jsonify(_row_to_dict(row, row["reply_count"], liked=liked, coined=coined,
+                                    viewer_admin=bool(user and user.get("is_admin"))))
     finally:
         conn.close()
 
@@ -555,6 +630,8 @@ def get_post(post_id):
 
 @app.route("/api/users/<username>", methods=["GET"])
 def user_profile(username):
+    viewer = _get_current_user()
+    viewer_admin = bool(viewer and viewer.get("is_admin"))
     conn = get_db()
     try:
         user = conn.execute(
@@ -579,9 +656,9 @@ def user_profile(username):
                 "is_admin": user["is_admin"] or 0,
                 "level": level,
                 "post_count": total,
-                "created_at": _fmt_time(user["created_at"]),
+                **_time_fields(user["created_at"], viewer_admin),
             },
-            "posts": [_row_to_dict(r, r["reply_count"]) for r in rows],
+            "posts": [_row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin) for r in rows],
         })
     finally:
         conn.close()
@@ -621,13 +698,35 @@ def post_media(post_id):
 def delete_post(post_id):
     conn = get_db()
     try:
-        row = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        row = conn.execute(
+            "SELECT author, title, content, tags, image_url, images FROM posts WHERE id=?",
+            (post_id,),
+        ).fetchone()
         if not row:
             return jsonify({"error": "帖子不存在"}), 404
         is_admin = request.current_user.get("is_admin")
         is_author = row["author"] == request.current_user["username"]
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的帖子或由管理员删除"}), 403
+        comments = conn.execute(
+            "SELECT id, author, content, parent_id, reply_to, created_at "
+            "FROM comments WHERE post_id=? ORDER BY id ASC",
+            (post_id,),
+        ).fetchall()
+        _log_audit(
+            conn, "delete_post", request.current_user["username"], "post", post_id, post_id,
+            {
+                "title": row["title"] or "",
+                "content": row["content"] or "",
+                "author": row["author"] or "",
+                "tags": row["tags"] or "",
+                "comments": [{
+                    "id": c["id"], "author": c["author"] or "", "content": c["content"] or "",
+                    "parent_id": c["parent_id"] or 0, "reply_to": c["reply_to"] or "",
+                    "created_at": _fmt_time(c["created_at"]),
+                } for c in comments],
+            },
+        )
         conn.execute(
             "DELETE FROM comment_likes WHERE comment_id IN "
             "(SELECT id FROM comments WHERE post_id=?)",
@@ -764,6 +863,7 @@ def upload_image():
 @app.route("/api/posts/<int:post_id>/comments", methods=["GET"])
 def list_comments(post_id):
     user = _get_current_user()
+    viewer_admin = bool(user and user.get("is_admin"))
     conn = get_db()
     try:
         rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
@@ -778,7 +878,7 @@ def list_comments(post_id):
         out = []
         for r in rows:
             item = dict(r)
-            item["created_at"] = _fmt_time(item["created_at"])
+            item.update(_time_fields(item["created_at"], viewer_admin))
             item["parent_id"] = item.get("parent_id") or 0
             item["reply_to"] = item.get("reply_to") or ""
             item["liked"] = r["id"] in liked_ids
@@ -910,13 +1010,37 @@ def toggle_comment_like(post_id, cid):
 def delete_comment(post_id, cid):
     conn = get_db()
     try:
-        row = conn.execute("SELECT author FROM comments WHERE id=? AND post_id=?", (cid, post_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, author, content, parent_id, reply_to, created_at "
+            "FROM comments WHERE id=? AND post_id=?",
+            (cid, post_id),
+        ).fetchone()
         if not row:
             return jsonify({"error": "评论不存在"}), 404
         is_admin = request.current_user.get("is_admin")
         is_author = row["author"] == request.current_user["username"]
         if not is_admin and not is_author:
             return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
+        replies = conn.execute(
+            "SELECT id, author, content, parent_id, reply_to, created_at "
+            "FROM comments WHERE parent_id=? ORDER BY id ASC",
+            (cid,),
+        ).fetchall()
+        _log_audit(
+            conn, "delete_comment", request.current_user["username"], "comment", cid, post_id,
+            {
+                "comment": {
+                    "id": row["id"], "author": row["author"] or "", "content": row["content"] or "",
+                    "parent_id": row["parent_id"] or 0, "reply_to": row["reply_to"] or "",
+                    "created_at": _fmt_time(row["created_at"]),
+                },
+                "replies": [{
+                    "id": c["id"], "author": c["author"] or "", "content": c["content"] or "",
+                    "parent_id": c["parent_id"] or 0, "reply_to": c["reply_to"] or "",
+                    "created_at": _fmt_time(c["created_at"]),
+                } for c in replies],
+            },
+        )
         # 删除这条评论及其下回复（当前只支持一层回复）
         conn.execute(
             "DELETE FROM comment_likes WHERE comment_id IN "
@@ -934,6 +1058,7 @@ def delete_comment(post_id, cid):
 @app.route("/api/notifs", methods=["GET"])
 @login_required
 def list_notifs():
+    viewer_admin = bool(request.current_user.get("is_admin"))
     conn = get_db()
     try:
         rows = conn.execute(
@@ -945,7 +1070,7 @@ def list_notifs():
             "title": r["title"] or "",
             "text": r["text"] or "",
             "is_read": r["is_read"] or 0,
-            "created_at": _fmt_time(r["created_at"]),
+            **_time_fields(r["created_at"], viewer_admin),
         } for r in rows]
         unread = sum(1 for n in notifs if not n["is_read"])
         return jsonify({"notifs": notifs, "unread": unread})
@@ -978,6 +1103,7 @@ def message_inbox():
         ).fetchall()
     finally:
         conn.close()
+    viewer_admin = bool(request.current_user.get("is_admin"))
     conversations = {}
     for r in rows:
         peer = r["receiver"] if r["sender"] == me else r["sender"]
@@ -985,7 +1111,7 @@ def message_inbox():
             conversations[peer] = {
                 "peer": peer,
                 "last": r["content"],
-                "time": _fmt_time(r["created_at"]),
+                **_time_fields(r["created_at"], viewer_admin, key="time"),
                 "unread": 0,
             }
         if r["sender"] == peer and not r["is_read"]:
@@ -1012,12 +1138,13 @@ def message_thread(username):
             (me, username, username, me),
         ).fetchall()
         rows = list(reversed(rows))
+        viewer_admin = bool(request.current_user.get("is_admin"))
         messages = [{
             "id": r["id"],
             "sender": r["sender"],
             "receiver": r["receiver"],
             "content": r["content"],
-            "created_at": _fmt_time(r["created_at"]),
+            **_time_fields(r["created_at"], viewer_admin),
         } for r in rows]
         conn.execute(
             "UPDATE messages SET is_read=1 WHERE sender=? AND receiver=?",
@@ -1098,6 +1225,52 @@ def admin_stats():
         conn.close()
 
 
+@app.route("/api/admin/audit", methods=["GET"])
+@admin_required
+def admin_audit():
+    """管理员内容审查：精确时间只在这里和 admin 账号的页面返回。"""
+    conn = get_db()
+    try:
+        posts = conn.execute(
+            """SELECT p.id, p.title, p.author, p.created_at, p.views, p.likes,
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS replies
+               FROM posts p ORDER BY p.id DESC LIMIT 100"""
+        ).fetchall()
+        comments = conn.execute(
+            """SELECT c.id, c.post_id, c.author, c.content, c.created_at,
+                      c.parent_id, c.reply_to, p.title AS post_title
+               FROM comments c LEFT JOIN posts p ON p.id=c.post_id
+               ORDER BY c.id DESC LIMIT 300"""
+        ).fetchall()
+        deletions = conn.execute(
+            "SELECT id, action, actor, target_type, target_id, post_id, content, created_at "
+            "FROM audit_log ORDER BY id DESC LIMIT 200"
+        ).fetchall()
+        return jsonify({
+            "posts": [{
+                "id": r["id"], "title": r["title"] or "", "author": r["author"] or "",
+                "created_at": _fmt_time(r["created_at"]),
+                "views": r["views"] or 0, "likes": r["likes"] or 0,
+                "replies": r["replies"] or 0,
+            } for r in posts],
+            "comments": [{
+                "id": r["id"], "post_id": r["post_id"], "post_title": r["post_title"] or "",
+                "author": r["author"] or "", "content": r["content"] or "",
+                "created_at": _fmt_time(r["created_at"]),
+                "parent_id": r["parent_id"] or 0, "reply_to": r["reply_to"] or "",
+            } for r in comments],
+            "deletions": [{
+                "id": r["id"], "action": r["action"] or "", "actor": r["actor"] or "",
+                "target_type": r["target_type"] or "", "target_id": r["target_id"] or 0,
+                "post_id": r["post_id"] or 0, "content": r["content"] or "",
+                "created_at": _fmt_time(r["created_at"]),
+            } for r in deletions],
+            "generated_at": _fmt_time(datetime.now(timezone.utc)),
+        })
+    finally:
+        conn.close()
+
+
 @app.route("/api/admin/users", methods=["GET"])
 @admin_required
 def admin_users():
@@ -1124,6 +1297,13 @@ def admin_delete_user(uid):
             return jsonify({"error": "用户不存在"}), 404
         # 级联删除该用户的内容：评论、帖子、帖下评论、通知、私信
         username = user["username"]
+        post_count = conn.execute("SELECT COUNT(*) AS c FROM posts WHERE author=?", (username,)).fetchone()["c"]
+        comment_count = conn.execute("SELECT COUNT(*) AS c FROM comments WHERE author=?", (username,)).fetchone()["c"]
+        _log_audit(
+            conn, "delete_user", current["username"], "user", uid, 0,
+            {"username": username, "email": user["email"] or "",
+             "posts": post_count, "comments": comment_count},
+        )
         conn.execute(
             "DELETE FROM comments WHERE parent_id IN (SELECT id FROM comments WHERE author=?)",
             (username,),
@@ -1298,6 +1478,18 @@ def _migrate():
                     UNIQUE (post_id, username)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id SERIAL PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    actor TEXT DEFAULT '',
+                    target_type TEXT DEFAULT '',
+                    target_id INTEGER DEFAULT 0,
+                    post_id INTEGER DEFAULT 0,
+                    content TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1354,6 +1546,18 @@ def _migrate():
                     username TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (post_id, username)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action TEXT NOT NULL,
+                    actor TEXT DEFAULT '',
+                    target_type TEXT DEFAULT '',
+                    target_id INTEGER DEFAULT 0,
+                    post_id INTEGER DEFAULT 0,
+                    content TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             conn.commit()

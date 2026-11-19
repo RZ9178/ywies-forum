@@ -35,6 +35,12 @@
 
         <h2 style="color:var(--text);margin:30px 0 16px;">用户管理</h2>
         <div id="adminUserList" class="admin-list"></div>
+
+        <h2 style="color:var(--text);margin:30px 0 16px;">内容审查（精确时间）</h2>
+        <p style="color:var(--text-dim);font-size:12px;line-height:1.6;margin-bottom:12px;">
+            仅管理员可见，时间按本机时区显示到秒。此列表只包含当前仍存在的内容；如需追溯已删除内容，请使用 Supabase 数据库备份。
+        </p>
+        <div id="adminAuditList" class="admin-list"></div>
     </main>
 
     <script src="js/auth.js"></script>
@@ -111,16 +117,80 @@
             } catch (e) { alert('删除失败：' + e.message); }
         }
 
+        async function loadAudit() {
+            const wrap = document.getElementById('adminAuditList');
+            if (!wrap) return;
+            try {
+                const res = await Auth.get('/api/admin/audit');
+                const data = await res.json();
+                const comments = data.comments || [];
+                const posts = data.posts || [];
+                let html = '<h3 style="font-size:15px;margin:4px 0 10px;">最近评论</h3>';
+                if (!comments.length) {
+                    html += '<div style="color:var(--text-dim);">暂无评论</div>';
+                } else {
+                    html += comments.map(function (c) {
+                        return '<div class="admin-item">' +
+                            '<div class="admin-item-info">' +
+                                '<div class="admin-item-title">#' + c.id + ' · ' + escapeHtml(c.author) + ' · ' + formatTime(c.created_at) + '</div>' +
+                                '<div class="admin-item-meta">帖子：' + escapeHtml(c.post_title || '（已删除）') + '（#' + c.post_id + '）' +
+                                    (c.reply_to ? ' · 回复 @' + escapeHtml(c.reply_to) : '') + '</div>' +
+                                '<div style="color:var(--text);font-size:13px;white-space:pre-wrap;margin-top:6px;">' + escapeHtml(c.content) + '</div>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                }
+                html += '<h3 style="font-size:15px;margin:18px 0 10px;">最近帖子</h3>';
+                if (!posts.length) {
+                    html += '<div style="color:var(--text-dim);">暂无帖子</div>';
+                } else {
+                    html += posts.map(function (p) {
+                        return '<div class="admin-item">' +
+                            '<div class="admin-item-info">' +
+                                '<div class="admin-item-title">#' + p.id + ' · ' + escapeHtml(p.title) + '</div>' +
+                                '<div class="admin-item-meta">' + escapeHtml(p.author) + ' · ' + formatTime(p.created_at) +
+                                    ' · ' + p.replies + ' 评论 · ' + p.views + ' 浏览</div>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                }
+                const deletions = data.deletions || [];
+                html += '<h3 style="font-size:15px;margin:18px 0 10px;">删除记录（含内容快照）</h3>';
+                if (!deletions.length) {
+                    html += '<div style="color:var(--text-dim);">暂无删除记录</div>';
+                } else {
+                    html += deletions.map(function (d) {
+                        let content = d.content || '';
+                        try { content = JSON.stringify(JSON.parse(content), null, 2); } catch (e) {}
+                        const names = { delete_post: '删除帖子', delete_comment: '删除评论', delete_user: '删除账号' };
+                        return '<div class="admin-item">' +
+                            '<div class="admin-item-info">' +
+                                '<div class="admin-item-title">' + (names[d.action] || d.action) + ' · 操作人 ' + escapeHtml(d.actor) + ' · ' + formatTime(d.created_at) + '</div>' +
+                                '<div class="admin-item-meta">目标：' + escapeHtml(d.target_type) + ' #' + d.target_id + (d.post_id ? ' · 帖子 #' + d.post_id : '') + '</div>' +
+                                '<details style="margin-top:8px;"><summary style="cursor:pointer;color:var(--accent);font-size:12px;">查看内容快照</summary>' +
+                                    '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;color:var(--text);margin-top:6px;max-height:320px;overflow:auto;">' + escapeHtml(content) + '</pre>' +
+                                '</details>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                }
+                wrap.innerHTML = html;
+            } catch (e) {
+                wrap.innerHTML = '<div style="color:var(--danger);">审查数据加载失败</div>';
+            }
+        }
+
         function doLogout() { Auth.logout(); window.location.href = 'login.html'; }
 
         function formatTime(t) {
             if (!t) return '-';
-            const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+            const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
             if (!m) return t;
             const pad = function (n) { return String(n).padStart(2, '0'); };
-            const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+            const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
             if (isNaN(d.getTime())) return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
-            return m[1] + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+                pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
         }
 
         function escapeHtml(s) {
@@ -132,6 +202,7 @@
         loadStats();
         loadPosts();
         loadUsers();
+        loadAudit();
     </script>
 </body>
 </html>

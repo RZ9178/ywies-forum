@@ -43,7 +43,7 @@ const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
 const K_COMMENT_LIKED = 'ywies_comment_liked';
 const K_AUTHOR = 'ywies_author';
-const K_POSTS_CACHE = 'ywies_posts_cache_v2';
+const K_POSTS_CACHE = 'ywies_posts_cache_v3';
 
 let postsLoading = false;
 let postsLoadFailed = false;
@@ -207,7 +207,9 @@ function savePostsCache(list) {
                 likes: p.likes || 0,
                 coins: p.coins || 0,
                 replies: p.replies || 0,
-                created_at: p.created_at || ''
+                created_at: p.created_at || '',
+                created_at_zh: p.created_at_zh || '',
+                created_at_en: p.created_at_en || ''
             };
         });
         localStorage.setItem(K_POSTS_CACHE, JSON.stringify(slim));
@@ -326,7 +328,7 @@ function renderList(list) {
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
         const metaHtml = '<div class="card-meta">' +
                 '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || T('anonymous')) + '</a>' +
-                '<span class="card-time">' + formatTime(p.created_at) + '</span>' +
+                '<span class="card-time">' + formatTime(p) + '</span>' +
             '</div>' +
             '<div class="card-stats">' +
                 '<span title="' + T('tooltipLike') + '"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
@@ -504,7 +506,7 @@ async function renderNotifs() {
         return '<div class="notif-item"' + (n.is_read ? ' style="opacity:0.55;"' : '') + '>' +
                '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
                '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
-               '<div class="notif-time">' + escapeHtml(formatTime(n.created_at)) + '</div></div>';
+               '<div class="notif-time">' + escapeHtml(formatTime(n)) + '</div></div>';
     }).join('');
 }
 async function refreshBellDot() {
@@ -1013,7 +1015,7 @@ function renderDetail() {
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || T('untitled');
     document.getElementById('detailContent').textContent = p.content || '';
-    document.getElementById('detailTime').textContent = formatTime(p.created_at);
+    document.getElementById('detailTime').textContent = formatTime(p);
     document.getElementById('commentCount').textContent = allComments.length;
     // 登录后显示用户名
     document.getElementById('commentAuthor').value = Auth.isLoggedIn() ? Auth.user.username : '';
@@ -1092,7 +1094,7 @@ function commentHtml(c, opts) {
             '<button type="button" class="comment-action comment-reply-btn" data-cid="' + c.id + '" title="' + T('reply') + '">' +
                 '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + T('reply') +
             '</button>' +
-            '<span class="comment-time">' + formatTime(c.created_at) + '</span>' +
+            '<span class="comment-time">' + formatTime(c) + '</span>' +
         '</div>' +
     '</div>';
 }
@@ -1355,7 +1357,7 @@ function renderProfile(data) {
                     ? '<button type="button" class="profile-msg" data-user="' + escapeHtml(u.username) + '">' + T('profileMessage') + '</button>'
                     : '') + '</div>' +
             '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' +
-                T('profilePostsJoined', { n: (u.post_count || 0), date: formatTime(u.created_at) }) + '</div>' +
+                T('profilePostsJoined', { n: (u.post_count || 0), date: formatTime(u) }) + '</div>' +
         '</div>' +
     '</div>';
     if (!posts.length) {
@@ -1375,7 +1377,7 @@ function renderProfile(data) {
                         '<svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) +
                         '<svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) +
                         '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) +
-                        '<span class="profile-post-time">' + formatTime(p.created_at) + '</span>' +
+                        '<span class="profile-post-time">' + formatTime(p) + '</span>' +
                     '</div>' +
                 '</div>' +
             '</div>';
@@ -1479,7 +1481,7 @@ function renderInbox(data) {
                     (c.unread > 0 ? '<span class="conv-unread">' + c.unread + '</span>' : '') + '</span>' +
                 '<span class="conv-last">' + escapeHtml(c.last || '') + '</span>' +
             '</span>' +
-            '<span class="conv-time">' + formatTime(c.time) + '</span>' +
+            '<span class="conv-time">' + formatTime(c, 'time') + '</span>' +
         '</button>';
     }).join('');
     body.querySelectorAll('.conv-item').forEach(function (el) {
@@ -1531,7 +1533,7 @@ function renderThread(data) {
             const mine = Auth.user && m.sender === Auth.user.username;
             return '<div class="msg-row ' + (mine ? 'me' : 'peer') + '">' +
                 '<div class="msg-bubble">' + escapeHtml(m.content) + '</div>' +
-                '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
+                '<div class="msg-time">' + formatTime(m) + '</div>' +
             '</div>';
         }).join('') + '</div>';
     }
@@ -1722,15 +1724,57 @@ function getFollowing() { try { return JSON.parse(localStorage.getItem(K_FOLLOW)
 function getLiked() { try { return JSON.parse(localStorage.getItem(K_LIKED) || '[]'); } catch (e) { return []; } }
 function getCoined() { try { return JSON.parse(localStorage.getItem(K_COINED) || '[]'); } catch (e) { return []; } }
 
-function formatTime(t) {
-    if (!t) return '-';
-    // 后端统一返回 UTC 的 "YYYY-MM-DD HH:MM:SS"，这里换算成本机时区显示
-    const m = String(t).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-    if (!m) return t;
+function parseUtc(t) {
+    const m = String(t || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function relativeTime(t) {
+    const d = parseUtc(t);
+    if (!d) return '-';
+    const lang = (window.I18n && I18n.lang === 'en') ? 'en' : 'zh';
+    const diff = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    if (diff < 60) return lang === 'en' ? 'Just now' : '刚刚';
+    if (diff < 3600) {
+        const n = Math.floor(diff / 60);
+        return lang === 'en' ? n + ' min ago' : n + '分钟前';
+    }
+    if (diff < 86400) {
+        const n = Math.floor(diff / 3600);
+        return lang === 'en' ? n + ' hr ago' : n + '小时前';
+    }
+    if (diff < 30 * 86400) {
+        const n = Math.floor(diff / 86400);
+        return lang === 'en' ? n + (n === 1 ? ' day ago' : ' days ago') : n + '天前';
+    }
+    const now = new Date();
+    if (d.getFullYear() !== now.getFullYear()) {
+        return lang === 'en'
+            ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    }
+    return lang === 'en'
+        ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : (d.getMonth() + 1) + '月' + d.getDate() + '日';
+}
+
+function formatExactTime(t) {
+    const d = parseUtc(t);
+    if (!d) return t || '-';
     const pad = function (n) { return String(n).padStart(2, '0'); };
-    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
-    if (isNaN(d.getTime())) return m[2] + '-' + m[3] + ' ' + m[4] + ':' + m[5];
-    return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+function formatTime(obj, key) {
+    key = key || 'created_at';
+    if (!obj) return '-';
+    if (typeof obj === 'string') return relativeTime(obj);
+    if (Auth.isAdmin() && obj[key]) return formatExactTime(obj[key]);
+    const lang = (window.I18n && I18n.lang === 'en') ? 'en' : 'zh';
+    return obj[key + '_' + lang] || relativeTime(obj[key]) || '-';
 }
 function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

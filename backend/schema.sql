@@ -1,6 +1,7 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS post_coins;
 DROP TABLE IF EXISTS post_likes;
 DROP TABLE IF EXISTS sessions;
@@ -93,4 +94,15 @@ CREATE TABLE post_coins (
     username    TEXT NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (post_id, username)
+);
+
+CREATE TABLE audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    action      TEXT NOT NULL,
+    actor       TEXT DEFAULT '',
+    target_type TEXT DEFAULT '',
+    target_id   INTEGER DEFAULT 0,
+    post_id     INTEGER DEFAULT 0,
+    content     TEXT DEFAULT '',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

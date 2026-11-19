@@ -76,6 +76,15 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 免费方案：用 UptimeRobot 等外部监控每 5 分钟请求一次 `/api/health`，保持实例与 Supabase 活跃
 - 注意免费额度约 750 实例小时/月，24/7 运行约 744 小时，不要超额
 
+## 时间显示与内容审查
+
+- 普通用户只看到相对时间：刚刚、N 分钟前、N 小时前、1–29 天前；超过 29 天显示日期（如 `10月20日`），不显示几点几分
+- 非管理员的 API 不再返回原始 `created_at`，只返回中英文相对时间字段，避免从接口里直接拿到精确时间
+- 管理员登录后，帖子详情、评论、私信等会显示精确到秒的本地时间；后台新增「内容审查」和「删除记录」
+- 删除帖子/评论时会把内容快照写入 `audit_log`，之后可以在后台查看，避免内容删掉后无法追溯
+- 需要直接看原始数据时，用 Supabase Table Editor / SQL 查看 `posts`、`comments`、`users` 的 `created_at`（UTC）；只给负责团队开权限
+- 增加管理员：在 Supabase SQL 里执行 `UPDATE users SET is_admin=1 WHERE username='用户名';`，重新登录后出现「后台」入口
+
 ## 登录态与刷新
 
 - 登录使用 `sessions` 表，同一账号可多设备同时在线，每个 token 独立有效 30 天
