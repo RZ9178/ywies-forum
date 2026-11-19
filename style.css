@@ -438,7 +438,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     position: relative;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 22px;
     width: 100%;
     max-width: 1320px;
     height: 88vh;
@@ -452,8 +452,8 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 /* 右上角红色关闭按钮 */
 .detail-close {
     position: absolute;
-    top: 14px; right: 14px;
-    width: 36px; height: 36px;
+    top: 12px; right: 12px;
+    width: 34px; height: 34px;
     border-radius: 50%;
     background: var(--danger);
     color: var(--on-danger);
@@ -546,13 +546,13 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .comments-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 16px 18px 16px 18px;
-    padding-right: 52px;
+    padding-right: 72px;
     border-bottom: 1px solid var(--border);
     font-size: 15px;
     font-weight: 700;
     color: var(--text);
 }
-.comments-sort { display: flex; gap: 6px; }
+.comments-sort { display: flex; gap: 6px; margin-right: 2px; }
 .sort-btn {
     padding: 4px 12px;
     border-radius: 14px;
@@ -624,6 +624,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 /* 底部操作栏 */
 .detail-footer {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -644,16 +645,19 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .footer-input input:focus { border-color: var(--accent); }
 .footer-btn {
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 8px;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 9px;
     background: transparent;
     border: none;
     border-radius: 0;
     color: var(--text);
-    font-size: 14px;
+    font-size: 15px;
     cursor: pointer;
     white-space: nowrap;
 }
+.footer-btn .icon { width: 20px; height: 20px; }
+.footer-more { padding: 8px 6px; }
+.icon-more { fill: currentColor; stroke: none; }
 .footer-btn:hover { color: var(--accent); }
 .footer-btn.active { color: var(--danger); }
 #footerCoin.active,
@@ -1749,6 +1753,33 @@ input[readonly] {
     color: var(--accent);
 }
 .comment-replies-toggle:hover { text-decoration: underline; }
+
+/* 更多菜单 */
+.more-menu {
+    position: absolute;
+    right: 18px;
+    bottom: calc(100% + 8px);
+    min-width: 118px;
+    padding: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px var(--shadow-dialog);
+    z-index: 40;
+}
+.more-menu[hidden] { display: none; }
+.more-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text);
+}
+.more-item[hidden] { display: none; }
+.more-item:hover { background: var(--bg-hover); }
+.more-item.danger { color: var(--danger); }
 
 /* 投币后按钮禁用，不可撤回 */
 .footer-btn:disabled {

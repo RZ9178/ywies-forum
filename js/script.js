@@ -933,6 +933,38 @@ function bindDetailModal() {
     document.getElementById('commentInput').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.isComposing) submitComment();
     });
+    const moreBtn = document.getElementById('footerMore');
+    const moreMenu = document.getElementById('detailMoreMenu');
+    const moreDelete = document.getElementById('moreDelete');
+    const moreReport = document.getElementById('moreReport');
+    if (moreBtn && moreMenu && moreDelete && moreReport) {
+        moreBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!currentPost) return;
+            const canDelete = Auth.isLoggedIn() && (Auth.isAdmin() || Auth.user.username === currentPost.author);
+            moreDelete.hidden = !canDelete;
+            moreReport.hidden = canDelete;
+            const willOpen = moreMenu.hidden;
+            moreMenu.hidden = !willOpen;
+            moreBtn.setAttribute('aria-expanded', String(willOpen));
+        });
+        moreDelete.addEventListener('click', function () {
+            closeDetailMoreMenu();
+            deleteCurrentPost();
+        });
+        moreReport.addEventListener('click', function () {
+            closeDetailMoreMenu();
+            alert('举报功能还在开发中，之后开放');
+        });
+        document.addEventListener('click', function (e) {
+            if (moreMenu.hidden) return;
+            if (moreMenu.contains(e.target) || e.target === moreBtn) return;
+            closeDetailMoreMenu();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeDetailMoreMenu();
+        });
+    }
 }
 
 async function openDetail(postId) {
@@ -950,8 +982,16 @@ async function openDetail(postId) {
     document.body.style.overflow = 'hidden';
 }
 
+function closeDetailMoreMenu() {
+    const menu = document.getElementById('detailMoreMenu');
+    const btn = document.getElementById('footerMore');
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
 function closeDetail() {
     closeImageViewer();
+    closeDetailMoreMenu();
     resetReplyTarget();
     expandedReplyThreads = {};
     document.getElementById('detailModal').hidden = true;
@@ -978,18 +1018,7 @@ function renderDetail() {
     document.getElementById('commentCount').textContent = allComments.length;
     // 登录后显示用户名
     document.getElementById('commentAuthor').value = Auth.isLoggedIn() ? Auth.user.username : '';
-    // 删除帖子按钮：管理员或楼主
-    let delBtn = document.getElementById('detailDeletePost');
-    if (!delBtn) {
-        delBtn = document.createElement('button');
-        delBtn.id = 'detailDeletePost';
-        delBtn.className = 'footer-btn btn-danger';
-        delBtn.textContent = '删除帖子';
-        delBtn.addEventListener('click', deleteCurrentPost);
-        document.querySelector('.detail-footer').insertBefore(delBtn, document.getElementById('footerLike'));
-    }
-    const canDelete = Auth.isLoggedIn() && (Auth.isAdmin() || Auth.user.username === p.author);
-    delBtn.style.display = canDelete ? '' : 'none';
+    closeDetailMoreMenu();
     renderComments();
     updateFooterButtons();
 }
