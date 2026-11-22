@@ -75,6 +75,23 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 .topbar-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
+.header-lang {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    background: var(--bg);
+}
+.header-lang:hover { border-color: var(--accent); color: var(--accent); }
+.header-lang[data-lang="zh"] .lang-zh,
+.header-lang[data-lang="en"] .lang-en { color: var(--accent); }
 .header-icon-btn {
     position: relative;
     width: 38px;
@@ -438,6 +455,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     .topbar-inner { padding: 10px 14px; gap: 10px; }
     .brand-name { display: none; }
     .topbar-actions { gap: 6px; }
+    .header-lang { padding: 5px 7px; font-size: 10px; }
     .header-icon-btn,
     .header-avatar { width: 34px; height: 34px; }
     .header-icon-btn .icon { width: 19px; height: 19px; }

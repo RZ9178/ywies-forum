@@ -229,6 +229,8 @@
         });
         document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
         if (document.body) document.body.classList.toggle('lang-en', lang === 'en');
+        var headerLang = document.getElementById('langBtn');
+        if (headerLang) headerLang.setAttribute('data-lang', lang);
         var pageKey = document.body && document.body.getAttribute('data-page-title');
         document.title = t(pageKey || 'pageTitle');
         updateToggles();
@@ -246,6 +248,8 @@
     document.querySelectorAll('.js-lang-toggle').forEach(function (btn) {
         btn.addEventListener('click', toggle);
     });
+    var headerLang = document.getElementById('langBtn');
+    if (headerLang) headerLang.addEventListener('click', toggle);
     apply();
     window.I18n = {
         t: t,
