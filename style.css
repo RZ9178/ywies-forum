@@ -153,32 +153,6 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 }
 .tab.active:hover { color: #ffffff; background: var(--accent-hover); }
 
-/* ---------- 标签筛选 ---------- */
-.tag-bar {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 10px 20px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-.tag-pill {
-    font-size: 12px;
-    padding: 4px 12px;
-    border-radius: 999px;
-    background: var(--bg-elev);
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    transition: all 0.15s;
-}
-.tag-pill:hover { color: var(--text); border-color: var(--border); }
-.tag-pill.active {
-    background: var(--accent);
-    color: var(--accent-ink);
-    border-color: var(--accent);
-    font-weight: 600;
-}
-
 /* ---------- 帖子列表 ---------- */
 .list-wrap {
     max-width: 1200px;

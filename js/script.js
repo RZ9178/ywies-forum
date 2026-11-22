@@ -94,7 +94,6 @@ window.addEventListener('DOMContentLoaded', function () {
     window.addEventListener('load', scheduleMasonry);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleMasonry);
     document.addEventListener('i18n:change', function () {
-        renderTags(allTags);
         render();
         renderTagPicker();
         fetchConfig();
@@ -279,7 +278,6 @@ async function fetchTags() {
         const data = await res.json();
         if (Array.isArray(data)) allTags = data;
     } catch (e) {}
-    renderTagBar();
 }
 
 function normalizeTag(tag) {
@@ -296,36 +294,18 @@ function getPostTags(post) {
 }
 
 function applyTagFilter(tag) {
-    currentTag = normalizeTag(tag);
+    const name = normalizeTag(tag);
+    currentTag = '';
     currentTab = 'all';
-    searchQuery = '';
+    searchQuery = name ? '#' + name : '';
     const search = document.getElementById('searchInput');
-    if (search) search.value = '';
+    if (search) search.value = searchQuery;
     document.querySelectorAll('.tab').forEach(function (t) {
         t.classList.toggle('active', t.getAttribute('data-tab') === 'all');
     });
     if (!document.getElementById('detailModal').hidden) closeDetail();
-    renderTagBar();
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ---------- 标签栏 ----------
-function renderTagBar() {
-    const bar = document.getElementById('tagBar');
-    let html = '<button class="tag-pill' + (currentTag === '' ? ' active' : '') + '" data-tag="">' + T('all') + '</button>';
-    allTags.forEach(function (t) {
-        const name = t.name;
-        html += '<button class="tag-pill' + (currentTag === name ? ' active' : '') + '" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</button>';
-    });
-    bar.innerHTML = html;
-    bar.querySelectorAll('.tag-pill').forEach(function (pill) {
-        pill.addEventListener('click', function () {
-            currentTag = pill.getAttribute('data-tag');
-            renderTagBar();
-            render();
-        });
-    });
 }
 
 // ---------- 列表渲染 ----------
