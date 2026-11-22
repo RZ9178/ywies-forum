@@ -114,33 +114,31 @@ async function refreshSite() {
 
 function initAuth() {
     const logged = Auth.isLoggedIn();
-    document.getElementById('loginBtn').hidden = logged;
-    document.getElementById('registerBtn').hidden = logged;
-    document.getElementById('userArea').hidden = !logged;
     updateCoinBalance();
-    if (logged) {
-        const nameEl = document.getElementById('userName');
-        nameEl.textContent = Auth.user.username;
-        nameEl.title = T('profileView');
-        nameEl.addEventListener('click', function () {
-            if (Auth.user) openProfile(Auth.user.username);
+    const me = document.getElementById('meBtn');
+    if (me) {
+        me.addEventListener('click', function () {
+            if (Auth.isLoggedIn() && Auth.user && Auth.user.username) {
+                openProfile(Auth.user.username);
+            } else {
+                window.location.href = 'login.html';
+            }
         });
-        document.getElementById('adminBtn').hidden = !Auth.isAdmin();
-        refreshMe();
     }
-    document.getElementById('logoutBtn').addEventListener('click', function () {
-        const token = Auth.token;
-        Auth.logout();
-        if (token) {
-            // 只注销当前设备，其他设备登录态保留
-            fetch('/api/logout', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token },
-                keepalive: true
-            }).catch(function () {});
-        }
-        location.reload();
-    });
+    if (logged) refreshMe();
+}
+
+function doLogout() {
+    const token = Auth.token;
+    Auth.logout();
+    if (token) {
+        fetch('/api/logout', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            keepalive: true
+        }).catch(function () {});
+    }
+    window.location.reload();
 }
 
 function updateCoinBalance() {
@@ -1459,9 +1457,9 @@ function renderProfile(data) {
     const body = document.getElementById('profileBody');
     const u = data.user || {};
     const posts = data.posts || [];
-    const initial = (u.username || '?').slice(0, 1);
+    const isMe = !!(Auth.user && u.username === Auth.user.username);
     let html = '<div class="profile-head">' +
-        '<div class="profile-avatar">' + escapeHtml(initial) + '</div>' +
+        '<div class="profile-avatar"><svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg></div>' +
         '<div class="profile-head-info">' +
             '<div class="profile-name">' + escapeHtml(u.username || T('profileUnknown')) +
                 (u.is_admin ? '<span class="profile-badge">' + T('profileAdmin') + '</span>' : '') +
@@ -1496,6 +1494,15 @@ function renderProfile(data) {
         });
         html += '</div>';
     }
+    if (isMe) {
+        html += '<div class="profile-actions">' +
+            (u.is_admin ? '<a class="profile-action" href="admin.html">' + T('admin') + '</a>' : '') +
+            '<button type="button" class="profile-action" id="profileLang">' +
+                (window.I18n && I18n.lang === 'en' ? '中文' : 'English') +
+            '</button>' +
+            '<button type="button" class="profile-action danger" id="profileLogout">' + T('logout') + '</button>' +
+        '</div>';
+    }
     body.innerHTML = html;
     body.querySelectorAll('.profile-post').forEach(function (el) {
         el.addEventListener('click', function () {
@@ -1509,6 +1516,13 @@ function renderProfile(data) {
         const peer = this.getAttribute('data-user');
         closeProfile();
         openMessageThread(peer);
+    });
+    const profileLogout = body.querySelector('#profileLogout');
+    if (profileLogout) profileLogout.addEventListener('click', doLogout);
+    const profileLang = body.querySelector('#profileLang');
+    if (profileLang) profileLang.addEventListener('click', function () {
+        I18n.toggle();
+        renderProfile(data);
     });
 }
 

@@ -75,6 +75,35 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 
 .topbar-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
+.header-icon-btn {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    background: transparent;
+}
+.header-icon-btn:hover { color: var(--text); background: var(--bg-hover); }
+.header-icon-btn .icon { width: 21px; height: 21px; }
+#openPostBtn { color: var(--accent); }
+#openPostBtn:hover { color: var(--accent-hover); background: var(--accent-soft); }
+.header-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+}
+.header-avatar:hover { color: var(--accent); border-color: var(--accent); }
+.header-avatar .icon { width: 23px; height: 23px; }
+
 .bell-btn {
     position: relative;
     font-size: 18px;
@@ -408,10 +437,11 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 @media (max-width: 760px) {
     .topbar-inner { padding: 10px 14px; gap: 10px; }
     .brand-name { display: none; }
-    .topbar-actions { gap: 8px; }
-    .topbar-actions .btn,
-    .topbar-actions .btn-post { padding: 6px 10px; font-size: 12px; }
-    .lang-btn { min-width: 34px; padding: 6px 8px; }
+    .topbar-actions { gap: 6px; }
+    .header-icon-btn,
+    .header-avatar { width: 34px; height: 34px; }
+    .header-icon-btn .icon { width: 19px; height: 19px; }
+    .header-avatar .icon { width: 21px; height: 21px; }
     .list-wrap { padding: 4px 10px 40px; }
     .list-header { display: none; }
     .post-row { padding: 10px 8px; gap: 8px; }
@@ -1943,3 +1973,23 @@ input[readonly] {
     font-weight: 600;
 }
 .detail-tag:hover { background: var(--accent); color: #fff; }
+
+.profile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+.profile-action {
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+}
+.profile-action:hover { border-color: var(--accent); color: var(--accent); }
+.profile-action.danger { color: var(--danger); }
+.profile-action.danger:hover { border-color: var(--danger); color: var(--danger); }
