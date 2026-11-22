@@ -31,6 +31,7 @@ let viewerIndex = 0;
 let viewerDownloadName = 'image.jpg';
 let currentChatUser = '';
 let messageLockedBody = false;
+let commentSubmitting = false;
 
 function T(key, vars) {
     return window.I18n ? I18n.t(key, vars) : key;
@@ -117,6 +118,7 @@ function initAuth() {
     document.getElementById('loginBtn').hidden = logged;
     document.getElementById('registerBtn').hidden = logged;
     document.getElementById('userArea').hidden = !logged;
+    updateCoinBalance();
     if (logged) {
         const nameEl = document.getElementById('userName');
         nameEl.textContent = Auth.user.username;
@@ -125,6 +127,7 @@ function initAuth() {
             if (Auth.user) openProfile(Auth.user.username);
         });
         document.getElementById('adminBtn').hidden = !Auth.isAdmin();
+        refreshMe();
     }
     document.getElementById('logoutBtn').addEventListener('click', function () {
         const token = Auth.token;
@@ -139,6 +142,33 @@ function initAuth() {
         }
         location.reload();
     });
+}
+
+function updateCoinBalance() {
+    const el = document.getElementById('coinBalance');
+    const num = document.getElementById('coinBalanceNum');
+    if (!el || !num) return;
+    if (!Auth.isLoggedIn()) {
+        el.hidden = true;
+        return;
+    }
+    el.hidden = false;
+    num.textContent = (Auth.user && Auth.user.coins !== undefined && Auth.user.coins !== null)
+        ? Auth.user.coins : 0;
+}
+
+async function refreshMe() {
+    if (!Auth.isLoggedIn()) { updateCoinBalance(); return; }
+    try {
+        const res = await Auth.get('/api/me');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && data.user) {
+            Auth.user = data.user;
+            Auth.save(Auth.token, Auth.user);
+            updateCoinBalance();
+        }
+    } catch (e) {}
 }
 
 async function fetchPosts() {
@@ -252,13 +282,41 @@ async function fetchTags() {
     renderTagBar();
 }
 
+function normalizeTag(tag) {
+    return String(tag == null ? '' : tag).trim().replace(/^#+/, '').trim();
+}
+
+function getPostTags(post) {
+    const seen = [];
+    String((post && post.tags) || '').split(',').forEach(function (t) {
+        const name = normalizeTag(t);
+        if (name && seen.indexOf(name) === -1) seen.push(name);
+    });
+    return seen;
+}
+
+function applyTagFilter(tag) {
+    currentTag = normalizeTag(tag);
+    currentTab = 'all';
+    searchQuery = '';
+    const search = document.getElementById('searchInput');
+    if (search) search.value = '';
+    document.querySelectorAll('.tab').forEach(function (t) {
+        t.classList.toggle('active', t.getAttribute('data-tab') === 'all');
+    });
+    if (!document.getElementById('detailModal').hidden) closeDetail();
+    renderTagBar();
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 // ---------- 标签栏 ----------
 function renderTagBar() {
     const bar = document.getElementById('tagBar');
     let html = '<button class="tag-pill' + (currentTag === '' ? ' active' : '') + '" data-tag="">' + T('all') + '</button>';
     allTags.forEach(function (t) {
         const name = t.name;
-        html += '<button class="tag-pill' + (currentTag === name ? ' active' : '') + '" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</button>';
+        html += '<button class="tag-pill' + (currentTag === name ? ' active' : '') + '" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</button>';
     });
     bar.innerHTML = html;
     bar.querySelectorAll('.tag-pill').forEach(function (pill) {
@@ -273,13 +331,16 @@ function renderTagBar() {
 // ---------- 列表渲染 ----------
 function render() {
     let list = allPosts.slice();
-    if (currentTag) list = list.filter(function (p) { return (p.tags || '').includes(currentTag); });
+    if (currentTag) {
+        list = list.filter(function (p) { return getPostTags(p).indexOf(currentTag) !== -1; });
+    }
     if (searchQuery) {
-        const q = searchQuery.toLowerCase();
+        const q = normalizeTag(searchQuery).toLowerCase();
         list = list.filter(function (p) {
             return (p.title || '').toLowerCase().includes(q) ||
                    (p.content || '').toLowerCase().includes(q) ||
-                   (p.author || '').toLowerCase().includes(q);
+                   (p.author || '').toLowerCase().includes(q) ||
+                   getPostTags(p).join(' ').toLowerCase().includes(q);
         });
     }
     if (currentTab === 'latest' || currentTab === 'all') list.sort(function (a, b) { return b.id - a.id; });
@@ -322,8 +383,13 @@ function renderList(list) {
 
     list.forEach(function (p) {
         const isRead = read.indexOf(p.id) !== -1;
-        const firstTag = (p.tags || '').split(',')[0].trim();
         const cover = getPostImages(p)[0] || '';
+        const tags = getPostTags(p);
+        const tagsHtml = tags.length
+            ? '<div class="card-tags">' + tags.map(function (t) {
+                return '<button type="button" class="card-tag-chip" data-tag="' + escapeHtml(t) + '">#' + escapeHtml(t) + '</button>';
+            }).join('') + '</div>'
+            : '';
 
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
         const metaHtml = '<div class="card-meta">' +
@@ -346,10 +412,10 @@ function renderList(list) {
                 '<div class="card-cover">' +
                     '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
                     ( !isRead ? '<span class="card-unread" title="' + T('tooltipUnread') + '"></span>' : '') +
-                    (firstTag ? '<span class="post-tag card-tag">' + escapeHtml(firstTag) + '</span>' : '') +
                 '</div>' +
                 '<div class="card-body">' +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml +
                     metaHtml +
                 '</div>';
         } else {
@@ -358,9 +424,9 @@ function renderList(list) {
                 '<div class="card-body">' +
                     '<div class="card-text-top">' +
                         ( !isRead ? '<span class="card-unread-inline" title="' + T('tooltipUnread') + '"></span>' : '') +
-                        (firstTag ? '<span class="post-tag card-tag card-tag-inline">' + escapeHtml(firstTag) + '</span>' : '') +
                     '</div>' +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml +
                     (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
                     metaHtml +
                 '</div>';
@@ -379,7 +445,7 @@ function renderList(list) {
         }
 
         card.addEventListener('click', function (e) {
-            if (e.target.closest('.card-author')) return;
+            if (e.target.closest('.card-author') || e.target.closest('.card-tag-chip')) return;
             markRead(p.id);
             openDetail(p.id);
         });
@@ -390,6 +456,12 @@ function renderList(list) {
                 markRead(p.id);
                 openDetail(p.id);
             }
+        });
+        card.querySelectorAll('.card-tag-chip').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                applyTagFilter(this.getAttribute('data-tag'));
+            });
         });
         const authorLink = card.querySelector('.card-author');
         if (authorLink) authorLink.addEventListener('click', function (e) {
@@ -549,7 +621,7 @@ function bindPostModal() {
     document.getElementById('newTagInput').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            const val = this.value.trim();
+            const val = normalizeTag(this.value);
             if (val && selectedTags.indexOf(val) === -1) {
                 selectedTags.push(val);
                 this.value = '';
@@ -776,11 +848,11 @@ function renderTagPicker() {
     allTags.forEach(function (t) {
         const name = t.name;
         const sel = selectedTags.indexOf(name) !== -1;
-        html += '<span class="tag-option' + (sel ? ' selected' : '') + '" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>';
+        html += '<span class="tag-option' + (sel ? ' selected' : '') + '" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</span>';
     });
     selectedTags.forEach(function (name) {
         if (!allTags.find(function (t) { return t.name === name; })) {
-            html += '<span class="tag-option selected" data-tag="' + escapeHtml(name) + '">' + escapeHtml(name) + '</span>';
+            html += '<span class="tag-option selected" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</span>';
         }
     });
     if (!allTags.length && !selectedTags.length) {
@@ -963,7 +1035,14 @@ function bindDetailModal() {
 function openCoinModal() {
     const modal = document.getElementById('coinModal');
     if (!modal) return;
-    document.querySelectorAll('.coin-option').forEach(function (b) { b.disabled = false; });
+    const balance = (Auth.user && typeof Auth.user.coins === 'number') ? Auth.user.coins : 0;
+    if (balance < 1) {
+        alert(T('coinNotEnough'));
+        return;
+    }
+    document.querySelectorAll('.coin-option').forEach(function (b) {
+        b.disabled = Number(b.getAttribute('data-amount')) > balance;
+    });
     modal.hidden = false;
 }
 
@@ -987,6 +1066,11 @@ async function giveCoin(amount) {
         const data = await res.json();
         currentPost.coins = data.coins;
         currentPost.coined = (typeof data.coined === 'boolean') ? data.coined : true;
+        if (typeof data.balance === 'number' && Auth.user) {
+            Auth.user.coins = data.balance;
+            Auth.save(Auth.token, Auth.user);
+            updateCoinBalance();
+        }
         const coined = getCoined();
         if (coined.indexOf(currentPost.id) === -1) coined.push(currentPost.id);
         localStorage.setItem(K_COINED, JSON.stringify(coined));
@@ -1045,6 +1129,19 @@ function renderDetail() {
     document.getElementById('detailAuthorName').textContent = p.author || T('anonymous');
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || T('untitled');
+    const detailTags = document.getElementById('detailTags');
+    const tags = getPostTags(p);
+    if (detailTags) {
+        detailTags.innerHTML = tags.map(function (t) {
+            return '<button type="button" class="detail-tag" data-tag="' + escapeHtml(t) + '">#' + escapeHtml(t) + '</button>';
+        }).join('');
+        detailTags.hidden = !tags.length;
+        detailTags.querySelectorAll('.detail-tag').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                applyTagFilter(this.getAttribute('data-tag'));
+            });
+        });
+    }
     document.getElementById('detailContent').innerHTML = linkify(p.content || '');
     document.getElementById('detailTime').textContent = formatTime(p);
     document.getElementById('commentCount').textContent = allComments.length;
@@ -1264,6 +1361,7 @@ async function reloadComments() {
 }
 
 async function submitComment() {
+    if (commentSubmitting) return;
     if (!Auth.isLoggedIn()) {
         alert(T('loginToComment'));
         window.location.href = 'login.html';
@@ -1272,6 +1370,7 @@ async function submitComment() {
     const input = document.getElementById('commentInput');
     const text = input.value.trim();
     if (!text || !currentPost) return;
+    commentSubmitting = true;
     const payload = { content: text };
     let rootToExpand = 0;
     if (replyTarget) {
@@ -1293,6 +1392,8 @@ async function submitComment() {
         if (list) list.scrollTop = commentSort === 'latest' ? 0 : list.scrollHeight;
     } catch (e) {
         alert(T('commentFailed') + ' ' + e.message);
+    } finally {
+        commentSubmitting = false;
     }
 }
 

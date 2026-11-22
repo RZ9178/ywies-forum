@@ -130,6 +130,8 @@
         coinOne: { zh: '1 币', en: '1 coin' },
         coinTwo: { zh: '2 币', en: '2 coins' },
         coinOwn: { zh: '不能给自己的帖子投币', en: 'You can’t coin your own post.' },
+        coinBalanceTitle: { zh: '硬币余额', en: 'Coin balance' },
+        coinNotEnough: { zh: '硬币不足', en: 'Not enough coins.' },
         coinTitle: { zh: '硬币', en: 'Coin' },
         coinedTitle: { zh: '已投币', en: 'Coined' },
         likeFailed: { zh: '点赞失败', en: 'Failed to like.' },

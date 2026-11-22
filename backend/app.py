@@ -158,7 +158,7 @@ def _get_current_user():
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT u.id, u.email, u.username, u.is_admin FROM sessions s "
+            "SELECT u.id, u.email, u.username, u.is_admin, u.coins FROM sessions s "
             "JOIN users u ON u.username = s.username "
             "WHERE s.token=? AND s.expires>?",
             (token, time.time()),
@@ -166,7 +166,7 @@ def _get_current_user():
         if not row:
             # 兼容旧 token（users.token 单列），迁移后会自动复制进 sessions
             row = conn.execute(
-                "SELECT id, email, username, is_admin FROM users WHERE token=? AND token_expires>?",
+                "SELECT id, email, username, is_admin, coins FROM users WHERE token=? AND token_expires>?",
                 (token, time.time()),
             ).fetchone()
         return dict(row) if row else None
@@ -259,9 +259,11 @@ def register():
         # 先查重：SQLite 与 PostgreSQL 的异常类型不同，靠异常判断会漏
         if conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
             return jsonify({"error": "这个昵称已经被注册了"}), 400
+        today = _today_shanghai()
         conn.execute(
-            "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 0)",
-            (fake_email, username, pwd_hash),
+            "INSERT INTO users (email, username, password, is_admin, coins, last_daily_coin) "
+            "VALUES (?, ?, ?, 0, 10, ?)",
+            (fake_email, username, pwd_hash, today),
         )
         conn.commit()
         token = secrets.token_urlsafe(32)
@@ -282,7 +284,7 @@ def register():
         return jsonify({"error": "这个昵称已经被注册了"}), 400
     finally:
         conn.close()
-    return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username, "is_admin": 0}})
+    return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username, "is_admin": 0, "coins": 10}})
 
 
 @app.route("/api/login", methods=["POST"])
@@ -297,6 +299,7 @@ def login():
             return jsonify({"error": "昵称或密码不对"}), 401
         if not check_password_hash(row["password"], password):
             return jsonify({"error": "昵称或密码不对"}), 401
+        coins = _claim_daily_coins(conn, row["id"])
         token = secrets.token_urlsafe(32)
         expires = time.time() + SESSION_TTL
         conn.execute(
@@ -311,7 +314,8 @@ def login():
         conn.commit()
         return jsonify({
             "token": token,
-            "user": {"id": row["id"], "email": row["email"], "username": row["username"], "is_admin": row["is_admin"]}
+            "user": {"id": row["id"], "email": row["email"], "username": row["username"],
+                     "is_admin": row["is_admin"], "coins": coins}
         })
     finally:
         conn.close()
@@ -323,8 +327,13 @@ def me():
     if not user:
         return jsonify({"error": "未登录"}), 401
     level, image_limit, post_count = _user_level_and_limit(user)
+    conn = get_db()
+    try:
+        coins = _claim_daily_coins(conn, user["id"])
+    finally:
+        conn.close()
     data = dict(user)
-    data.update({"level": level, "max_post_images": image_limit, "post_count": post_count})
+    data.update({"level": level, "max_post_images": image_limit, "post_count": post_count, "coins": coins})
     return jsonify({"user": data})
 
 
@@ -437,6 +446,38 @@ def _log_audit(conn, action, actor, target_type, target_id, post_id=0, content="
         print(f"[审计] 写入失败：{e}")
 
 
+def _today_shanghai():
+    return datetime.now(SHANGHAI_TZ).date().isoformat()
+
+
+def _claim_daily_coins(conn, user_id):
+    """每天首次登录/打开网站发 3 币；当天只发一次，不发通知。"""
+    row = conn.execute(
+        "SELECT coins, last_daily_coin FROM users WHERE id=?", (user_id,)
+    ).fetchone()
+    if not row:
+        return 0
+    coins = row["coins"] or 0
+    today = _today_shanghai()
+    last = row["last_daily_coin"] or ""
+    if not last:
+        conn.execute("UPDATE users SET last_daily_coin=? WHERE id=?", (today, user_id))
+        conn.commit()
+        return coins
+    if last >= today:
+        return coins
+    cur = conn.execute(
+        "UPDATE users SET coins=COALESCE(coins, 0)+3, last_daily_coin=? "
+        "WHERE id=? AND last_daily_coin=?",
+        (today, user_id, last),
+    )
+    conn.commit()
+    if cur.rowcount > 0:
+        return coins + 3
+    row = conn.execute("SELECT coins FROM users WHERE id=?", (user_id,)).fetchone()
+    return (row["coins"] if row and row["coins"] is not None else coins)
+
+
 def _fmt_time(value):
     """把数据库时间统一成 'YYYY-MM-DD HH:MM:SS'（UTC）。
     PostgreSQL 返回 datetime 对象（Flask 会序列化成英文 HTTP 日期），
@@ -543,7 +584,13 @@ def create_post():
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
     author = request.current_user["username"]
-    tags = (data.get("tags") or "").strip()
+    raw_tags = (data.get("tags") or "").strip()
+    tags_list = []
+    for t in raw_tags.split(","):
+        t = t.strip().lstrip("#").strip()[:30]
+        if t and t not in tags_list:
+            tags_list.append(t)
+    tags = ",".join(tags_list)
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
     if not content:
@@ -805,12 +852,26 @@ def toggle_coin(post_id):
             amount = 1
         if amount not in (1, 2):
             return jsonify({"error": "投币数量只能是 1 或 2"}), 400
+        wallet = conn.execute(
+            "SELECT coins FROM users WHERE username=?", (me,)
+        ).fetchone()
+        balance = (wallet["coins"] if wallet and wallet["coins"] is not None else 0)
+        if balance < amount:
+            return jsonify({"error": "硬币不足"}), 400
         cur = conn.execute(
             "INSERT INTO post_coins (post_id, username, amount) VALUES (?, ?, ?) "
             "ON CONFLICT (post_id, username) DO NOTHING",
             (post_id, me, amount),
         )
         if cur.rowcount > 0:
+            upd = conn.execute(
+                "UPDATE users SET coins = COALESCE(coins, 0) - ? "
+                "WHERE username=? AND COALESCE(coins, 0) >= ?",
+                (amount, me, amount),
+            )
+            if upd.rowcount == 0:
+                conn.rollback()
+                return jsonify({"error": "硬币不足"}), 400
             conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + ? WHERE id=?", (amount, post_id))
         conn.commit()
         row = conn.execute("SELECT coins FROM posts WHERE id=?", (post_id,)).fetchone()
@@ -819,10 +880,12 @@ def toggle_coin(post_id):
         own = conn.execute(
             "SELECT amount FROM post_coins WHERE post_id=? AND username=?", (post_id, me)
         ).fetchone()
+        wallet = conn.execute("SELECT coins FROM users WHERE username=?", (me,)).fetchone()
         return jsonify({
             "coins": row["coins"],
             "coined": True,
             "amount": (own["amount"] if own and own["amount"] else amount),
+            "balance": (wallet["coins"] if wallet and wallet["coins"] is not None else 0),
         })
     finally:
         conn.close()
@@ -1217,9 +1280,11 @@ def list_tags():
         rows = conn.execute("SELECT tags FROM posts WHERE tags IS NOT NULL AND tags != ''").fetchall()
         counter = {}
         for r in rows:
+            seen = set()
             for t in (r["tags"] or "").split(","):
-                t = t.strip()
-                if t:
+                t = t.strip().lstrip("#").strip()
+                if t and t not in seen:
+                    seen.add(t)
                     counter[t] = counter.get(t, 0) + 1
         result = sorted(counter.items(), key=lambda x: -x[1])
         return jsonify([{"name": t, "count": c} for t, c in result])
@@ -1293,7 +1358,7 @@ def admin_users():
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT id, username, email, is_admin, created_at FROM users ORDER BY id"
+            "SELECT id, username, email, is_admin, coins, created_at FROM users ORDER BY id"
         ).fetchall()
         return jsonify([dict(r, created_at=_fmt_time(r["created_at"])) for r in rows])
     finally:
@@ -1409,6 +1474,8 @@ def _migrate():
                     is_admin INTEGER DEFAULT 0,
                     token TEXT DEFAULT '',
                     token_expires INTEGER DEFAULT 0,
+                    coins INTEGER DEFAULT 10,
+                    last_daily_coin TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1601,12 +1668,12 @@ def _migrate():
                 print(f"[迁移] 帖子点赞/投币计数清零跳过：{e}")
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
-        text_cols = {"tags", "email", "token", "image_url", "images", "reply_to"}
+        text_cols = {"tags", "email", "token", "image_url", "images", "reply_to", "last_daily_coin"}
         col_sets = {}
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
             ("comments", ["likes", "parent_id", "reply_to"]),
-            ("users", ["email", "is_admin", "token", "token_expires"]),
+            ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin"]),
         ]:
             if is_pg:
                 existing = [r["column_name"] for r in conn.execute(
@@ -1617,7 +1684,10 @@ def _migrate():
             col_sets[table] = set(existing)
             for col in cols:
                 if col not in existing:
-                    coltype = "TEXT DEFAULT ''" if col in text_cols else "INTEGER DEFAULT 0"
+                    if table == "users" and col == "coins":
+                        coltype = "INTEGER DEFAULT 10"
+                    else:
+                        coltype = "TEXT DEFAULT ''" if col in text_cols else "INTEGER DEFAULT 0"
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
                     print(f"[迁移] 已给 {table} 表加上 {col} 列")
 
@@ -1632,6 +1702,20 @@ def _migrate():
                     conn.execute("ALTER TABLE users ADD COLUMN token TEXT DEFAULT ''")
                     print("[迁移] 已重建 users.token 列为 TEXT")
         conn.commit()
+
+        # 初始钱包：已有账号一次性补到 10 币；当天不重复发每日 3 币
+        try:
+            conn.execute(
+                "UPDATE users SET coins=10 WHERE coins IS NULL"
+            )
+            conn.execute(
+                "UPDATE users SET last_daily_coin=? "
+                "WHERE last_daily_coin IS NULL OR last_daily_coin=''",
+                (_today_shanghai(),),
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"[迁移] 初始钱包跳过：{e}")
 
         # 登录态迁移：把旧 users.token 复制进 sessions，升级后不用重新登录
         try:

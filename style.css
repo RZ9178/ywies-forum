@@ -90,6 +90,20 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
     border-radius: 50%;
 }
 
+.coin-balance {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.coin-balance[hidden] { display: none; }
+.coin-balance .icon { width: 17px; height: 17px; }
 .lang-btn {
     min-width: 42px;
     justify-content: center;
@@ -1915,3 +1929,43 @@ input[readonly] {
     border-radius: 8px;
 }
 .coin-cancel:hover { background: var(--bg-hover); color: var(--text); }
+@media (max-width: 760px) {
+    .coin-balance { padding: 5px 7px; font-size: 12px; gap: 3px; }
+    .coin-balance .icon { width: 15px; height: 15px; }
+}
+
+/* 帖子标签 */
+.card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.card-tag-chip {
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.card-tag-chip:hover { background: var(--accent); color: #fff; }
+.detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: -4px 0 14px;
+}
+.detail-tags[hidden] { display: none; }
+.detail-tag {
+    padding: 2px 8px;
+    border-radius: 5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+.detail-tag:hover { background: var(--accent); color: #fff; }
