@@ -2335,3 +2335,65 @@ input[readonly] {
     .profile-works-head { margin-top: 18px; font-size: 16px; }
     .edit-banner { height: 120px; }
 }
+
+/* 通知传送门 */
+.notif-item { position: relative; }
+.notif-item.clickable { cursor: pointer; }
+.notif-item.clickable:hover { background: var(--bg-hover); }
+.notif-go {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-size: 18px;
+}
+.notif-item.clickable:hover .notif-go { color: var(--accent); }
+
+/* @ 提及候选 */
+.mention-box {
+    position: absolute;
+    left: 20px;
+    bottom: calc(100% + 8px);
+    width: 300px;
+    max-width: calc(100% - 40px);
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px var(--shadow-dialog);
+    z-index: 45;
+}
+.mention-box[hidden] { display: none; }
+.mention-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 8px;
+    border-radius: 8px;
+    text-align: left;
+}
+.mention-item:hover,
+.mention-item.active { background: var(--accent-soft); }
+.mention-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--bg-elev);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+.mention-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.mention-avatar .icon { width: 18px; height: 18px; }
+.mention-name { font-size: 13px; color: var(--text); font-weight: 600; }
+.mention-handle { font-size: 11px; color: var(--text-dim); }
+@media (max-width: 760px) {
+    .mention-box { left: 12px; bottom: calc(100% + 6px); max-width: calc(100% - 24px); }
+}

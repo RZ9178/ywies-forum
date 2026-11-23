@@ -35,6 +35,10 @@ let commentSubmitting = false;
 let readsSyncing = false;
 let followingUsers = new Set();
 let profileMasonryRaf = null;
+let mentionTimer = null;
+let mentionRequestId = 0;
+let mentionItems = [];
+let mentionActiveIndex = 0;
 
 function T(key, vars) {
     return window.I18n ? I18n.t(key, vars) : key;
@@ -604,11 +608,27 @@ async function renderNotifs() {
     }
     list.innerHTML = notifs.map(function (n) {
         // 已读的通知整体淡化，和未读区分开
-        return '<div class="notif-item"' + (n.is_read ? ' style="opacity:0.55;"' : '') + '>' +
+        const postId = Number(n.post_id) || 0;
+        return '<div class="notif-item' + (postId ? ' clickable' : '') + '"' +
+               (postId ? ' data-post-id="' + postId + '" role="button" tabindex="0"' : '') +
+               (n.is_read ? ' style="opacity:0.55;"' : '') + '>' +
                '<div class="notif-title">' + escapeHtml(n.title) + '</div>' +
                '<div class="notif-text">' + escapeHtml(n.text) + '</div>' +
-               '<div class="notif-time">' + escapeHtml(formatTime(n)) + '</div></div>';
+               '<div class="notif-time">' + escapeHtml(formatTime(n)) + '</div>' +
+               (postId ? '<span class="notif-go">›</span>' : '') + '</div>';
     }).join('');
+    list.querySelectorAll('.notif-item[data-post-id]').forEach(function (el) {
+        const go = function () {
+            const pid = Number(el.getAttribute('data-post-id'));
+            if (!pid) return;
+            document.getElementById('notifModal').hidden = true;
+            openDetail(pid);
+        };
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+        });
+    });
 }
 async function refreshBellDot() {
     const dot = document.getElementById('bellDot');
@@ -1012,7 +1032,13 @@ function bindDetailModal() {
         updateFooterButtons();
     });
     document.getElementById('replyCancel').addEventListener('click', resetReplyTarget);
-    document.getElementById('commentInput').addEventListener('keydown', function (e) {
+    const commentInput = document.getElementById('commentInput');
+    commentInput.addEventListener('input', scheduleMentionSearch);
+    commentInput.addEventListener('blur', function () {
+        setTimeout(hideMentionBox, 150);
+    });
+    commentInput.addEventListener('keydown', function (e) {
+        if (handleMentionKeydown(e)) return;
         if (e.key === 'Enter' && !e.isComposing) submitComment();
     });
     const moreBtn = document.getElementById('footerMore');
@@ -1139,6 +1165,7 @@ function closeDetailMoreMenu() {
 }
 
 function closeDetail() {
+    hideMentionBox();
     closeImageViewer();
     closeDetailMoreMenu();
     closeCoinModal();
@@ -1395,6 +1422,112 @@ async function reloadComments() {
     renderComments();
 }
 
+function mentionToken() {
+    const input = document.getElementById('commentInput');
+    if (!input) return null;
+    const pos = input.selectionStart || 0;
+    const before = input.value.slice(0, pos);
+    const at = before.lastIndexOf('@');
+    if (at === -1) return null;
+    const query = before.slice(at + 1);
+    if (query.length > 30 || /[\s@]/.test(query) || /[，。！？、,.!?;:：；]/.test(query)) return null;
+    return { query: query, start: at };
+}
+
+function scheduleMentionSearch() {
+    const token = mentionToken();
+    if (!token) { hideMentionBox(); return; }
+    clearTimeout(mentionTimer);
+    mentionTimer = setTimeout(function () { loadMentionSuggestions(token.query); }, 140);
+}
+
+async function loadMentionSuggestions(query) {
+    const requestId = ++mentionRequestId;
+    try {
+        const res = await Auth.get('/api/users/search?q=' + encodeURIComponent(query));
+        if (!res.ok) return;
+        const users = await res.json();
+        if (requestId !== mentionRequestId) return;
+        const current = mentionToken();
+        if (!current || current.query !== query) return;
+        renderMentionBox(Array.isArray(users) ? users : []);
+    } catch (e) {
+        hideMentionBox();
+    }
+}
+
+function renderMentionBox(users) {
+    const box = document.getElementById('mentionBox');
+    if (!box) return;
+    mentionItems = users;
+    mentionActiveIndex = 0;
+    if (!users.length) { hideMentionBox(); return; }
+    box.innerHTML = users.map(function (u, i) {
+        return '<button type="button" class="mention-item' + (i === 0 ? ' active' : '') + '" data-username="' + escapeHtml(u.username) + '">' +
+            '<span class="mention-avatar">' +
+                (u.avatar ? '<img src="' + escapeHtml(u.avatar) + '" alt="">'
+                          : '<svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>') +
+            '</span>' +
+            '<span><span class="mention-name">' + escapeHtml(u.display_name || u.username) + '</span>' +
+                '<span class="mention-handle">@' + escapeHtml(u.username) + '</span></span>' +
+        '</button>';
+    }).join('');
+    box.hidden = false;
+    box.querySelectorAll('.mention-item').forEach(function (btn) {
+        btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+        btn.addEventListener('click', function () {
+            insertMention(this.getAttribute('data-username'));
+        });
+    });
+}
+
+function hideMentionBox() {
+    mentionRequestId++;
+    const box = document.getElementById('mentionBox');
+    if (box) { box.hidden = true; box.innerHTML = ''; }
+    mentionItems = [];
+    mentionActiveIndex = 0;
+}
+
+function setMentionActive(index) {
+    if (!mentionItems.length) return;
+    mentionActiveIndex = (index + mentionItems.length) % mentionItems.length;
+    const box = document.getElementById('mentionBox');
+    box.querySelectorAll('.mention-item').forEach(function (el, i) {
+        el.classList.toggle('active', i === mentionActiveIndex);
+        if (i === mentionActiveIndex) el.scrollIntoView({ block: 'nearest' });
+    });
+}
+
+function insertMention(username) {
+    if (!username) return;
+    const input = document.getElementById('commentInput');
+    const token = mentionToken();
+    if (!input || !token) { hideMentionBox(); return; }
+    const pos = input.selectionStart || 0;
+    const after = input.value.slice(pos);
+    const replacement = '@' + username + ' ';
+    input.value = input.value.slice(0, token.start) + replacement + after;
+    const newPos = token.start + replacement.length;
+    input.focus();
+    input.setSelectionRange(newPos, newPos);
+    hideMentionBox();
+}
+
+function handleMentionKeydown(e) {
+    const box = document.getElementById('mentionBox');
+    if (!box || box.hidden || !mentionItems.length) return false;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setMentionActive(mentionActiveIndex + 1); return true; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setMentionActive(mentionActiveIndex - 1); return true; }
+    if (e.key === 'Escape') { e.preventDefault(); hideMentionBox(); return true; }
+    if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        insertMention(mentionItems[mentionActiveIndex].username);
+        return true;
+    }
+    return false;
+}
+
 async function submitComment() {
     if (commentSubmitting) return;
     if (!Auth.isLoggedIn()) {
@@ -1405,6 +1538,7 @@ async function submitComment() {
     const input = document.getElementById('commentInput');
     const text = input.value.trim();
     if (!text || !currentPost) return;
+    hideMentionBox();
     commentSubmitting = true;
     const payload = { content: text };
     let rootToExpand = 0;

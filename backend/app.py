@@ -842,6 +842,23 @@ def list_follows():
         conn.close()
 
 
+def _extract_mentions(conn, content):
+    """从评论内容中找出真实存在的 @用户名。"""
+    text = content or ""
+    if "@" not in text:
+        return []
+    rows = conn.execute("SELECT username FROM users").fetchall()
+    names = []
+    for r in rows:
+        name = r["username"] or ""
+        if not name or name in names:
+            continue
+        pattern = r"(?<![A-Za-z0-9_.])@" + re.escape(name) + r"(?=$|[\s，。！？、,.!?;:：；()（）\[\]【】])"
+        if re.search(pattern, text):
+            names.append(name)
+    return names
+
+
 def _rename_user_everywhere(conn, old_name, new_name):
     """昵称即登录名：改名时同步所有历史署名和账号关联。"""
     conn.execute("UPDATE posts SET author=? WHERE author=?", (new_name, old_name))
@@ -883,6 +900,28 @@ def _repair_display_names(conn):
             conn.rollback()
             print(f"[迁移] 昵称同步跳过 {old}: {e}")
     return fixed
+
+
+@app.route("/api/users/search", methods=["GET"])
+@login_required
+def search_users():
+    q = (request.args.get("q") or "").strip()[:30]
+    like = "%" + q + "%"
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT username, display_name, avatar FROM users "
+            "WHERE username LIKE ? OR display_name LIKE ? "
+            "ORDER BY username LIMIT 8",
+            (like, like),
+        ).fetchall()
+        return jsonify([{
+            "username": r["username"],
+            "display_name": r["display_name"] or r["username"],
+            "avatar": r["avatar"] or "",
+        } for r in rows])
+    finally:
+        conn.close()
 
 
 @app.route("/api/me/profile", methods=["POST"])
@@ -1023,7 +1062,8 @@ def toggle_like(post_id):
     me = request.current_user["username"]
     conn = get_db()
     try:
-        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+        post = conn.execute("SELECT author, title FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not post:
             return jsonify({"error": "帖子不存在"}), 404
         changed = False
         if on:
@@ -1035,6 +1075,11 @@ def toggle_like(post_id):
             changed = cur.rowcount > 0
             if changed:
                 conn.execute("UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id=?", (post_id,))
+                if post["author"] and post["author"] != me:
+                    conn.execute(
+                        "INSERT INTO notifs (username, title, text, post_id) VALUES (?, ?, ?, ?)",
+                        (post["author"], "有人赞了你的帖子", f"{me} 赞了《{post['title'] or ''}》", post_id),
+                    )
         else:
             cur = conn.execute(
                 "DELETE FROM post_likes WHERE post_id=? AND username=?", (post_id, me)
@@ -1065,7 +1110,7 @@ def toggle_coin(post_id):
     me = request.current_user["username"]
     conn = get_db()
     try:
-        post = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        post = conn.execute("SELECT author, title FROM posts WHERE id=?", (post_id,)).fetchone()
         if not post:
             return jsonify({"error": "帖子不存在"}), 404
         if post["author"] == me:
@@ -1099,6 +1144,12 @@ def toggle_coin(post_id):
                 conn.rollback()
                 return jsonify({"error": "硬币不足"}), 400
             conn.execute("UPDATE posts SET coins = COALESCE(coins, 0) + ? WHERE id=?", (amount, post_id))
+            if post["author"]:
+                conn.execute(
+                    "INSERT INTO notifs (username, title, text, post_id) VALUES (?, ?, ?, ?)",
+                    (post["author"], "有人给你的帖子投了币",
+                     f"{me} 给《{post['title'] or ''}》投了 {amount} 币", post_id),
+                )
         conn.commit()
         row = conn.execute("SELECT coins FROM posts WHERE id=?", (post_id,)).fetchone()
         if not row:
@@ -1243,18 +1294,30 @@ def create_comment(post_id):
         )
         new_id = conn.max_id("comments")
 
-        # 通知帖子作者；自己评论自己的帖子不发
-        if post_author and post_author != author:
+        notified = set()
+        # 回复某条评论时优先通知被回复的人
+        if parent_id and reply_to and reply_to != author:
             conn.execute(
-                "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
-                (post_author, "有人评论了你的帖子", f"{author} 评论了《{post_title}》"),
+                "INSERT INTO notifs (username, title, text, post_id) VALUES (?, ?, ?, ?)",
+                (reply_to, "有人回复了你的评论", f"{author}：{content[:40]}", post_id),
             )
-        # 回复某条评论时，通知被回复的人；与帖子作者重复时只发一条
-        if parent_id and reply_to and reply_to != author and reply_to != post_author:
+            notified.add(reply_to)
+        # 再通知帖子作者；自己评论自己的帖子不发，和回复通知重复时不发
+        if post_author and post_author != author and post_author not in notified:
             conn.execute(
-                "INSERT INTO notifs (username, title, text) VALUES (?, ?, ?)",
-                (reply_to, "有人回复了你的评论", f"{author}：{content[:40]}"),
+                "INSERT INTO notifs (username, title, text, post_id) VALUES (?, ?, ?, ?)",
+                (post_author, "有人评论了你的帖子", f"{author} 评论了《{post_title}》", post_id),
             )
+            notified.add(post_author)
+        # @ 提到的人；如果已经因为评论/回复通知过，不重复发
+        for mentioned in _extract_mentions(conn, content):
+            if mentioned == author or mentioned in notified:
+                continue
+            conn.execute(
+                "INSERT INTO notifs (username, title, text, post_id) VALUES (?, ?, ?, ?)",
+                (mentioned, "有人提到了你", f"{author} 在《{post_title}》的评论中提到了你", post_id),
+            )
+            notified.add(mentioned)
         conn.commit()
         return jsonify({
             "id": new_id, "post_id": post_id, "author": author,
@@ -1367,13 +1430,14 @@ def list_notifs():
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT id, title, text, is_read, created_at FROM notifs WHERE username=? ORDER BY id DESC",
+            "SELECT id, title, text, post_id, is_read, created_at FROM notifs WHERE username=? ORDER BY id DESC",
             (request.current_user["username"],),
         ).fetchall()
         notifs = [{
             "id": r["id"],
             "title": r["title"] or "",
             "text": r["text"] or "",
+            "post_id": r["post_id"] or 0,
             "is_read": r["is_read"] or 0,
             **_time_fields(r["created_at"], viewer_admin),
         } for r in rows]
@@ -1810,6 +1874,7 @@ def _migrate():
                     username TEXT NOT NULL,
                     title TEXT DEFAULT '',
                     text TEXT DEFAULT '',
+                    post_id INTEGER DEFAULT 0,
                     is_read INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -1899,6 +1964,7 @@ def _migrate():
                     username TEXT NOT NULL,
                     title TEXT DEFAULT '',
                     text TEXT DEFAULT '',
+                    post_id INTEGER DEFAULT 0,
                     is_read INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -2008,6 +2074,7 @@ def _migrate():
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
             ("comments", ["likes", "parent_id", "reply_to"]),
+            ("notifs", ["post_id"]),
             ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
                        "display_name", "bio", "avatar", "banner"]),
         ]:
