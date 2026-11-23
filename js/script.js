@@ -33,6 +33,8 @@ let currentChatUser = '';
 let messageLockedBody = false;
 let commentSubmitting = false;
 let readsSyncing = false;
+let followingUsers = new Set();
+let profileMasonryRaf = null;
 
 function T(key, vars) {
     return window.I18n ? I18n.t(key, vars) : key;
@@ -87,6 +89,7 @@ window.addEventListener('DOMContentLoaded', function () {
         if (!document.hidden) {
             if (!allPosts.length || postsLoadFailed) fetchPosts();
             syncReads();
+            syncFollowing();
         }
     });
     window.addEventListener('pageshow', function (e) {
@@ -94,7 +97,7 @@ window.addEventListener('DOMContentLoaded', function () {
     });
     const refreshBtn = document.getElementById('refreshBtn');
     if (refreshBtn) refreshBtn.addEventListener('click', refreshSite);
-    window.addEventListener('resize', scheduleMasonry);
+    window.addEventListener('resize', function () { scheduleMasonry(); scheduleProfileMasonry(); });
     window.addEventListener('load', scheduleMasonry);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleMasonry);
     document.addEventListener('i18n:change', function () {
@@ -110,7 +113,7 @@ async function refreshSite() {
     if (!btn || btn.classList.contains('spinning')) return;
     btn.classList.add('spinning');
     try {
-        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot(), syncReads()]);
+        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot(), syncReads(), syncFollowing()]);
     } catch (e) {}
     setTimeout(function () { btn.classList.remove('spinning'); }, 400);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -118,7 +121,9 @@ async function refreshSite() {
 
 function initAuth() {
     const logged = Auth.isLoggedIn();
+    followingUsers = new Set(getFollowing());
     updateCoinBalance();
+    updateHeaderAvatar();
     const me = document.getElementById('meBtn');
     if (me) {
         me.addEventListener('click', function () {
@@ -132,6 +137,7 @@ function initAuth() {
     if (logged) {
         refreshMe();
         syncReads();
+        syncFollowing();
     }
 }
 
@@ -171,6 +177,7 @@ async function refreshMe() {
             Auth.user = data.user;
             Auth.save(Auth.token, Auth.user);
             updateCoinBalance();
+            updateHeaderAvatar();
         }
     } catch (e) {}
 }
@@ -195,6 +202,28 @@ async function syncReads() {
     } finally {
         readsSyncing = false;
     }
+}
+
+function updateHeaderAvatar() {
+    const btn = document.getElementById('meBtn');
+    if (!btn) return;
+    const avatar = Auth.isLoggedIn() && Auth.user ? (Auth.user.avatar || '') : '';
+    btn.innerHTML = avatar
+        ? '<img src="' + escapeHtml(avatar) + '" alt="">'
+        : '<svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>';
+    btn.title = T('myProfile');
+}
+
+async function syncFollowing() {
+    if (!Auth.isLoggedIn()) return;
+    try {
+        const res = await Auth.get('/api/follows');
+        if (!res.ok) return;
+        const data = await res.json();
+        followingUsers = new Set(Array.isArray(data.following) ? data.following : []);
+        localStorage.setItem(K_FOLLOW, JSON.stringify(Array.from(followingUsers)));
+        if (currentTab === 'followed') render();
+    } catch (e) {}
 }
 
 async function fetchPosts() {
@@ -357,8 +386,7 @@ function render() {
         list = list.filter(function (p) { return read.indexOf(p.id) === -1; })
                    .sort(function (a, b) { return b.id - a.id; });
     } else if (currentTab === 'followed') {
-        const following = getFollowing();
-        list = list.filter(function (p) { return following.indexOf(p.author) !== -1; });
+        list = list.filter(function (p) { return followingUsers.has(p.author); });
     } else if (currentTab === 'bookmarked') {
         const bm = getBookmarks();
         list = list.filter(function (p) { return bm.indexOf(p.id) !== -1; });
@@ -906,7 +934,11 @@ async function submitPost() {
 function bindDetailModal() {
     document.getElementById('detailClose').addEventListener('click', closeDetail);
     document.querySelector('.detail-author').addEventListener('click', function () {
-        if (currentPost && currentPost.author) openProfile(currentPost.author);
+        if (currentPost && currentPost.author) {
+            const author = currentPost.author;
+            closeDetail();
+            openProfile(author);
+        }
     });
     document.getElementById('detailImg').addEventListener('click', function (e) {
         if (e.target.tagName === 'IMG') openImageViewer(detailImages, detailImageIndex);
@@ -1113,7 +1145,8 @@ function closeDetail() {
     resetReplyTarget();
     expandedReplyThreads = {};
     document.getElementById('detailModal').hidden = true;
-    document.body.style.overflow = '';
+    const profilePage = document.getElementById('profilePage');
+    if (!profilePage || profilePage.hidden) document.body.style.overflow = '';
     currentPost = null;
     allComments = [];
     render();
@@ -1436,118 +1469,462 @@ function renderDetailImages() {
     });
 }
 
-let profileLockedBody = false;
+let currentProfileData = null;
+let currentProfileUsername = '';
+let currentConnectionsType = 'following';
+let currentConnectionsUsername = '';
+let profileEditAvatar = '';
+let profileEditBanner = '';
+let profileEditSaving = false;
+let connectionsRequestId = 0;
 
 function bindProfileModal() {
-    const modal = document.getElementById('profileModal');
-    if (!modal) return;
-    document.getElementById('profileClose').addEventListener('click', closeProfile);
-    modal.addEventListener('click', function (e) {
-        if (e.target === this) closeProfile();
+    const page = document.getElementById('profilePage');
+    if (!page) return;
+    document.getElementById('profileBack').addEventListener('click', closeProfile);
+    document.getElementById('profileLogoutBtn').addEventListener('click', doLogout);
+    document.getElementById('profileLangBtn').addEventListener('click', function () {
+        I18n.toggle();
+        if (currentProfileData) renderProfile(currentProfileData);
+    });
+    document.getElementById('profileEditPen').addEventListener('click', openProfileEdit);
+    document.getElementById('profileEditClose').addEventListener('click', closeProfileEdit);
+    document.getElementById('profileEditCancel').addEventListener('click', closeProfileEdit);
+    document.getElementById('profileEditSave').addEventListener('click', saveProfileEdit);
+    document.getElementById('editAvatarFile').addEventListener('change', function () {
+        const file = this.files && this.files[0];
+        this.value = '';
+        if (file) handleProfileImage('avatar', file);
+    });
+    document.getElementById('editBannerFile').addEventListener('change', function () {
+        const file = this.files && this.files[0];
+        this.value = '';
+        if (file) handleProfileImage('banner', file);
+    });
+    document.getElementById('editAvatarClear').addEventListener('click', function () {
+        profileEditAvatar = '';
+        renderProfileEditMedia();
+    });
+    document.getElementById('editBannerClear').addEventListener('click', function () {
+        profileEditBanner = '';
+        renderProfileEditMedia();
+    });
+    document.getElementById('profileEditModal').addEventListener('click', function (e) {
+        if (e.target === this) closeProfileEdit();
+    });
+    document.getElementById('connectionsClose').addEventListener('click', closeConnections);
+    document.getElementById('connectionsModal').addEventListener('click', function (e) {
+        if (e.target === this) closeConnections();
+    });
+    document.querySelectorAll('.connections-tab').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            currentConnectionsType = this.getAttribute('data-type');
+            document.querySelectorAll('.connections-tab').forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+            });
+            loadConnections();
+        });
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        if (!document.getElementById('profileEditModal').hidden) { closeProfileEdit(); return; }
+        if (!document.getElementById('connectionsModal').hidden) { closeConnections(); return; }
+        if (!page.hidden && document.getElementById('detailModal').hidden) closeProfile();
     });
 }
 
 async function openProfile(username) {
-    const modal = document.getElementById('profileModal');
-    const body = document.getElementById('profileBody');
-    if (!modal || !body || !username) return;
-    if (modal.hidden) {
-        profileLockedBody = document.body.style.overflow !== 'hidden';
-        if (profileLockedBody) document.body.style.overflow = 'hidden';
-    }
-    modal.hidden = false;
-    body.innerHTML = '<div class="profile-empty">' + T('profileLoading') + '</div>';
+    if (!username) return;
+    const page = document.getElementById('profilePage');
+    if (!page) return;
+    currentProfileUsername = username;
+    page.hidden = false;
+    page.scrollTop = 0;
+    document.body.style.overflow = 'hidden';
+    document.getElementById('profileName').textContent = T('profileLoading');
+    document.getElementById('profileStats').innerHTML = '';
+    document.getElementById('profileBio').textContent = '';
+    document.getElementById('profileHeroActions').innerHTML = '';
+    document.getElementById('profileWorks').innerHTML = '';
+    document.getElementById('profileWorksCount').textContent = '0';
+    document.getElementById('profileWorks').style.height = '';
+    document.getElementById('profileWorks').classList.remove('masonry');
+    document.getElementById('profileEditPen').hidden = true;
+    document.getElementById('profileToolbar').hidden = true;
+    document.getElementById('profileHeroBg').style.backgroundImage = '';
     try {
         const res = await Auth.get('/api/users/' + encodeURIComponent(username));
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        renderProfile(data);
+        currentProfileData = await res.json();
+        renderProfile(currentProfileData);
+        requestAnimationFrame(scheduleProfileMasonry);
     } catch (e) {
-        body.innerHTML = '<div class="profile-empty">' + T('profileFailed') + '</div>';
+        document.getElementById('profileName').textContent = T('profileFailed');
+        document.getElementById('profileBio').textContent = '';
     }
 }
 
 function closeProfile() {
-    const modal = document.getElementById('profileModal');
-    if (!modal || modal.hidden) return;
-    modal.hidden = true;
-    if (profileLockedBody) {
-        document.body.style.overflow = '';
-        profileLockedBody = false;
-    }
+    const page = document.getElementById('profilePage');
+    if (!page || page.hidden) return;
+    closeProfileEdit();
+    closeConnections();
+    page.hidden = true;
+    document.body.style.overflow = '';
+    currentProfileData = null;
+    currentProfileUsername = '';
+    document.title = T('pageTitle');
+}
+
+function formatCount(n) {
+    n = Math.max(0, Number(n) || 0);
+    if (n < 1000) return String(n);
+    const v = Math.round(n / 100) / 10;
+    return (Number.isInteger(v) ? String(v) : v.toFixed(1)) + 'k';
 }
 
 function renderProfile(data) {
-    const body = document.getElementById('profileBody');
     const u = data.user || {};
     const posts = data.posts || [];
-    const isMe = !!(Auth.user && u.username === Auth.user.username);
-    let html = '<div class="profile-head">' +
-        '<div class="profile-avatar"><svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg></div>' +
-        '<div class="profile-head-info">' +
-            '<div class="profile-name">' + escapeHtml(u.username || T('profileUnknown')) +
-                (u.is_admin ? '<span class="profile-badge">' + T('profileAdmin') + '</span>' : '') +
-                (u.username !== (Auth.user && Auth.user.username)
-                    ? '<button type="button" class="profile-msg" data-user="' + escapeHtml(u.username) + '">' + T('profileMessage') + '</button>'
-                    : '') + '</div>' +
-            '<div class="profile-meta">Lv.' + (u.level || 1) + ' · ' +
-                T('profilePostsJoined', { n: (u.post_count || 0), date: formatTime(u) }) + '</div>' +
-        '</div>' +
-    '</div>';
-    if (!posts.length) {
-        html += '<div class="profile-empty">' + T('profileNoPosts') + '</div>';
-    } else {
-        html += '<div class="profile-section-title">' + T('profileRecent') + '</div><div class="profile-posts">';
-        posts.forEach(function (p) {
-            const cover = getPostImages(p)[0] || '';
-            html += '<div class="profile-post" data-id="' + p.id + '">' +
-                '<div class="profile-post-thumb">' +
-                    (cover ? '<img src="' + escapeHtml(cover) + '" alt="" loading="lazy" decoding="async">'
-                           : '<svg class="icon" aria-hidden="true"><use href="#i-image"></use></svg>') +
-                '</div>' +
-                '<div class="profile-post-main">' +
-                    '<div class="profile-post-title">' + escapeHtml(p.title || T('untitled')) + '</div>' +
-                    '<div class="profile-post-meta">' +
-                        '<svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) +
-                        '<svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) +
-                        '<svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) +
-                        '<span class="profile-post-time">' + formatTime(p) + '</span>' +
-                    '</div>' +
-                '</div>' +
-            '</div>';
+    const isMe = !!u.is_self || !!(Auth.user && u.username === Auth.user.username);
+    const name = u.display_name || u.username || T('profileUnknown');
+    if (u.username) currentProfileUsername = u.username;
+
+    const avatar = document.getElementById('profileAvatar');
+    avatar.innerHTML = u.avatar
+        ? '<img src="' + escapeHtml(u.avatar) + '" alt="">'
+        : '<svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>';
+    const heroBg = document.getElementById('profileHeroBg');
+    heroBg.style.backgroundImage = u.banner ? 'url(' + JSON.stringify(u.banner) + ')' : '';
+
+    document.getElementById('profileName').textContent = name;
+    document.getElementById('profileBio').textContent = u.bio || T('profileNoBio');
+    document.getElementById('profileEditPen').hidden = !isMe;
+    document.getElementById('profileToolbar').hidden = !isMe;
+    document.getElementById('profileAdminLink').hidden = !(isMe && u.is_admin);
+    document.getElementById('profileLangBtn').textContent = (I18n.lang === 'en' ? '中文' : 'English');
+    document.getElementById('profileBack').title = T('profileBack');
+
+    const stats = document.getElementById('profileStats');
+    stats.innerHTML =
+        '<div class="profile-stat"><b>' + formatCount(u.comments_count) + '</b><span>' + T('profileComments') + '</span></div>' +
+        '<div class="profile-stat"><b>' + formatCount(u.likes_total) + '</b><span>' + T('profileLikes') + '</span></div>' +
+        '<button type="button" class="profile-stat clickable" data-connections="following"><b>' + formatCount(u.following_count) + '</b><span>' + T('profileFollowing') + '</span></button>' +
+        '<button type="button" class="profile-stat clickable" data-connections="followers"><b>' + formatCount(u.followers_count) + '</b><span>' + T('profileFollowers') + '</span></button>';
+    stats.querySelectorAll('[data-connections]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            openConnections(currentProfileUsername, this.getAttribute('data-connections'));
         });
-        html += '</div>';
-    }
-    if (isMe) {
-        html += '<div class="profile-actions">' +
-            (u.is_admin ? '<a class="profile-action" href="admin.html">' + T('admin') + '</a>' : '') +
-            '<button type="button" class="profile-action" id="profileLang">' +
-                (window.I18n && I18n.lang === 'en' ? '中文' : 'English') +
+    });
+
+    const actions = document.getElementById('profileHeroActions');
+    if (!isMe) {
+        actions.innerHTML =
+            '<button type="button" class="' + (u.is_following ? 'btn' : 'btn-post') + '" id="profileFollowBtn">' +
+                (u.is_following ? T('profileFollowingBtn') : T('profileFollow')) +
             '</button>' +
-            '<button type="button" class="profile-action danger" id="profileLogout">' + T('logout') + '</button>' +
-        '</div>';
-    }
-    body.innerHTML = html;
-    body.querySelectorAll('.profile-post').forEach(function (el) {
-        el.addEventListener('click', function () {
-            closeProfile();
-            openDetail(Number(this.getAttribute('data-id')));
+            '<button type="button" class="btn" id="profileMsgBtn">' + T('profileMessage') + '</button>';
+        const followBtn = document.getElementById('profileFollowBtn');
+        if (followBtn) followBtn.addEventListener('click', toggleProfileFollow);
+        const msgBtn = document.getElementById('profileMsgBtn');
+        if (msgBtn) msgBtn.addEventListener('click', function () {
+            if (!Auth.isLoggedIn()) {
+                alert(T('loginToMessages'));
+                window.location.href = 'login.html';
+                return;
+            }
+            openMessageThread(u.username);
         });
+    } else {
+        actions.innerHTML = '';
+    }
+
+    document.getElementById('profileWorksCount').textContent = u.post_count || posts.length;
+    renderProfileWorks(posts);
+    document.title = name + ' - ' + T('appName');
+}
+
+function renderProfileWorks(posts) {
+    const grid = document.getElementById('profileWorks');
+    grid.classList.remove('masonry');
+    grid.style.height = '';
+    grid.innerHTML = '';
+    if (!posts.length) {
+        grid.innerHTML = '<div class="profile-empty">' + T('profileNoWorks') + '</div>';
+        return;
+    }
+    posts.forEach(function (p) {
+        const cover = getPostImages(p)[0] || '';
+        const tags = getPostTags(p);
+        const tagsHtml = tags.length
+            ? '<div class="card-tags">' + tags.map(function (t) {
+                return '<span class="card-tag-chip">#' + escapeHtml(t) + '</span>';
+            }).join('') + '</div>'
+            : '';
+        const stats = '<div class="profile-work-stats">' +
+            '<span><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
+            '<span><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
+            '<span><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
+            '<span>' + formatTime(p) + '</span>' +
+        '</div>';
+        const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const card = document.createElement('article');
+        card.className = 'post-card profile-work-card';
+        card.setAttribute('data-id', p.id);
+        card.tabIndex = 0;
+        card.setAttribute('role', 'link');
+        if (cover) {
+            card.innerHTML =
+                '<div class="card-cover"><img src="' + escapeHtml(cover) + '" alt="" decoding="async"></div>' +
+                '<div class="card-body"><h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml + stats + '</div>';
+        } else {
+            card.innerHTML =
+                '<div class="card-body"><h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml + (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') + stats + '</div>';
+        }
+        const img = card.querySelector('.card-cover img');
+        if (img) {
+            img.addEventListener('load', scheduleProfileMasonry);
+            if (img.complete && img.naturalWidth) scheduleProfileMasonry();
+        }
+        card.addEventListener('click', function () { openDetail(p.id); });
+        card.addEventListener('keydown', function (e) {
+            if (e.target !== card) return;
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(p.id); }
+        });
+        grid.appendChild(card);
     });
-    const pm = body.querySelector('.profile-msg');
-    if (pm) pm.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const peer = this.getAttribute('data-user');
-        closeProfile();
-        openMessageThread(peer);
+    scheduleProfileMasonry();
+}
+
+function scheduleProfileMasonry() {
+    if (profileMasonryRaf) return;
+    profileMasonryRaf = requestAnimationFrame(function () {
+        profileMasonryRaf = null;
+        layoutProfileMasonry();
     });
-    const profileLogout = body.querySelector('#profileLogout');
-    if (profileLogout) profileLogout.addEventListener('click', doLogout);
-    const profileLang = body.querySelector('#profileLang');
-    if (profileLang) profileLang.addEventListener('click', function () {
-        I18n.toggle();
-        renderProfile(data);
+}
+
+function layoutProfileMasonry() {
+    const grid = document.getElementById('profileWorks');
+    if (!grid || document.getElementById('profilePage').hidden) return;
+    const cards = Array.prototype.slice.call(grid.children).filter(function (el) {
+        return el.classList.contains('post-card');
     });
+    if (!cards.length) {
+        grid.classList.remove('masonry');
+        grid.style.height = '';
+        return;
+    }
+    const width = grid.clientWidth;
+    if (!width) return;
+    grid.classList.add('masonry');
+    const vw = window.innerWidth;
+    const cols = vw <= 760 ? 2 : (vw <= 1300 ? 4 : 5);
+    const gap = cols === 2 ? 10 : 14;
+    const colWidth = (width - gap * (cols - 1)) / cols;
+    const heights = new Array(cols).fill(0);
+    cards.forEach(function (card) {
+        card.style.position = 'absolute';
+        card.style.width = colWidth + 'px';
+        let col = 0;
+        for (let i = 1; i < cols; i++) if (heights[i] < heights[col]) col = i;
+        card.style.transform = 'translate3d(' + (col * (colWidth + gap)) + 'px, ' + heights[col] + 'px, 0)';
+        heights[col] += card.offsetHeight + gap;
+    });
+    grid.style.height = (Math.max.apply(null, heights) - gap) + 'px';
+}
+
+async function toggleProfileFollow() {
+    if (!Auth.isLoggedIn()) {
+        alert(T('profileLoginToFollow'));
+        window.location.href = 'login.html';
+        return;
+    }
+    if (!currentProfileData || !currentProfileData.user) return;
+    const u = currentProfileData.user;
+    const on = !u.is_following;
+    const btn = document.getElementById('profileFollowBtn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await Auth.post('/api/users/' + encodeURIComponent(u.username) + '/follow', { on: on });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || T('profileFollowFailed'));
+        }
+        const data = await res.json();
+        u.is_following = !!data.is_following;
+        u.following_count = data.following_count;
+        u.followers_count = data.followers_count;
+        if (u.is_following) followingUsers.add(u.username);
+        else followingUsers.delete(u.username);
+        localStorage.setItem(K_FOLLOW, JSON.stringify(Array.from(followingUsers)));
+        if (currentTab === 'followed') render();
+        renderProfile(currentProfileData);
+    } catch (e) {
+        alert(T('profileFollowFailed') + ' ' + e.message);
+        if (btn) btn.disabled = false;
+    }
+}
+
+function openConnections(username, type) {
+    if (!username) return;
+    currentConnectionsUsername = username;
+    currentConnectionsType = type || 'following';
+    document.getElementById('connectionsModal').hidden = false;
+    document.querySelectorAll('.connections-tab').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-type') === currentConnectionsType);
+    });
+    document.getElementById('connectionsTitle').textContent =
+        currentConnectionsType === 'followers' ? T('profileFollowers') : T('profileFollowing');
+    loadConnections();
+}
+
+function closeConnections() {
+    const modal = document.getElementById('connectionsModal');
+    if (modal) modal.hidden = true;
+}
+
+async function loadConnections() {
+    const list = document.getElementById('connectionsList');
+    if (!list) return;
+    const requestId = ++connectionsRequestId;
+    list.innerHTML = '<div class="profile-empty">' + T('profileLoading') + '</div>';
+    try {
+        const res = await Auth.get('/api/users/' + encodeURIComponent(currentConnectionsUsername) +
+            '/connections?type=' + encodeURIComponent(currentConnectionsType));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (requestId !== connectionsRequestId) return;
+        const users = data.users || [];
+        if (!users.length) {
+            list.innerHTML = '<div class="profile-empty">' +
+                (currentConnectionsType === 'followers' ? T('profileNoFollowers') : T('profileNoFollowing')) +
+            '</div>';
+            return;
+        }
+        list.innerHTML = users.map(function (u) {
+            return '<button type="button" class="connection-item" data-username="' + escapeHtml(u.username) + '">' +
+                '<span class="connection-avatar">' +
+                    (u.avatar ? '<img src="' + escapeHtml(u.avatar) + '" alt="">'
+                              : '<svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>') +
+                '</span>' +
+                '<span><span class="connection-name">' + escapeHtml(u.display_name || u.username) + '</span>' +
+                    '<span class="connection-username">@' + escapeHtml(u.username) + '</span></span>' +
+            '</button>';
+        }).join('');
+        list.querySelectorAll('.connection-item').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                closeConnections();
+                openProfile(this.getAttribute('data-username'));
+            });
+        });
+    } catch (e) {
+        if (requestId !== connectionsRequestId) return;
+        list.innerHTML = '<div class="profile-empty">' + T('profileConnectionsFailed') + '</div>';
+    }
+}
+
+function openProfileEdit() {
+    if (!currentProfileData || !currentProfileData.user) return;
+    if (!Auth.user || currentProfileData.user.username !== Auth.user.username) return;
+    const u = currentProfileData.user;
+    profileEditAvatar = u.avatar || '';
+    profileEditBanner = u.banner || '';
+    document.getElementById('editDisplayName').value = u.display_name || u.username;
+    document.getElementById('editBio').value = u.bio || '';
+    document.getElementById('editStatus').textContent = '';
+    renderProfileEditMedia();
+    document.getElementById('profileEditModal').hidden = false;
+}
+
+function closeProfileEdit() {
+    const modal = document.getElementById('profileEditModal');
+    if (modal) modal.hidden = true;
+    profileEditSaving = false;
+}
+
+function renderProfileEditMedia() {
+    const avatar = document.getElementById('editAvatarPreview');
+    if (avatar) {
+        avatar.innerHTML = profileEditAvatar
+            ? '<img src="' + escapeHtml(profileEditAvatar) + '" alt="">'
+            : '<svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>';
+    }
+    const banner = document.getElementById('editBannerPreview');
+    if (banner) {
+        banner.style.backgroundImage = profileEditBanner
+            ? 'url(' + JSON.stringify(profileEditBanner) + ')'
+            : '';
+    }
+}
+
+async function handleProfileImage(kind, file) {
+    const status = document.getElementById('editStatus');
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+        alert(T('imageOnly'));
+        return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+        alert(T('imageTooLarge', { name: file.name || '' }));
+        return;
+    }
+    if (status) status.textContent = T('profileUploading');
+    try {
+        const blob = await prepareImageBlob(file);
+        const url = await uploadImageBlob(blob, file.name);
+        if (kind === 'avatar') profileEditAvatar = url;
+        else profileEditBanner = url;
+        renderProfileEditMedia();
+        if (status) status.textContent = '';
+    } catch (e) {
+        if (status) status.textContent = T('profileUploadFailed');
+        alert(T('profileUploadFailed') + ' ' + e.message);
+    }
+}
+
+async function saveProfileEdit() {
+    if (profileEditSaving || !currentProfileData) return;
+    profileEditSaving = true;
+    const btn = document.getElementById('profileEditSave');
+    if (btn) btn.disabled = true;
+    try {
+        const displayName = document.getElementById('editDisplayName').value.trim();
+        const bio = document.getElementById('editBio').value.trim();
+        const res = await Auth.post('/api/me/profile', {
+            display_name: displayName,
+            bio: bio,
+            avatar: profileEditAvatar,
+            banner: profileEditBanner
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || T('profileSaveFailed'));
+        }
+        const data = await res.json();
+        currentProfileData.user.display_name = data.user.display_name;
+        currentProfileData.user.bio = data.user.bio;
+        currentProfileData.user.avatar = data.user.avatar;
+        currentProfileData.user.banner = data.user.banner;
+        if (Auth.user) {
+            Auth.user.display_name = data.user.display_name;
+            Auth.user.bio = data.user.bio;
+            Auth.user.avatar = data.user.avatar;
+            Auth.user.banner = data.user.banner;
+            Auth.save(Auth.token, Auth.user);
+        }
+        updateHeaderAvatar();
+        const scroll = document.getElementById('profilePage').scrollTop;
+        closeProfileEdit();
+        renderProfile(currentProfileData);
+        document.getElementById('profilePage').scrollTop = scroll;
+    } catch (e) {
+        alert(T('profileSaveFailed') + ' ' + e.message);
+    } finally {
+        profileEditSaving = false;
+        if (btn) btn.disabled = false;
+    }
 }
 
 function bindMessages() {

@@ -6,7 +6,7 @@
     <title>YWIES 论坛</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/misans@5.0.0/lib/Normal/MiSansVF.min.css" crossorigin="anonymous">
-    <link rel="stylesheet" href="style.css?v=20261119s">
+    <link rel="stylesheet" href="style.css?v=20261119u">
 </head>
 <body>
 
@@ -23,6 +23,8 @@
         <symbol id="i-bubble" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H8l-5 3v-5.2A8.5 8.5 0 1 1 21 11.5Z"/></symbol>
         <symbol id="i-compose" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="5"/><path d="M12 9v6M9 12h6"/></symbol>
         <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-3.3 3.3-5 7-5s6.2 1.7 7 5"/></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></symbol>
         <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4h-4"/></symbol>
         <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></symbol>
     </svg>
@@ -103,14 +105,99 @@
         </div>
     </div>
 
-    <!-- 用户主页弹窗（2.6） -->
-    <div class="modal-mask" id="profileModal" hidden>
-        <div class="modal profile-modal">
-            <div class="modal-head">
-                <span data-i18n="profileTitle">用户主页</span>
-                <button class="modal-close" id="profileClose">×</button>
+    <!-- 用户主页（整页） -->
+    <div class="profile-page" id="profilePage" hidden>
+        <div class="profile-page-inner">
+            <button type="button" class="profile-back" id="profileBack" title="返回" aria-label="返回">
+                <svg class="icon" aria-hidden="true"><use href="#i-back"></use></svg>
+            </button>
+            <div class="profile-toolbar" id="profileToolbar" hidden>
+                <a href="admin.html" class="profile-tool" id="profileAdminLink" data-i18n="admin">后台</a>
+                <button type="button" class="profile-tool" id="profileLangBtn">English</button>
+                <button type="button" class="profile-tool danger" id="profileLogoutBtn" data-i18n="logout">退出</button>
             </div>
-            <div class="modal-body" id="profileBody"></div>
+
+            <section class="profile-hero" id="profileHero">
+                <div class="profile-hero-bg" id="profileHeroBg"></div>
+                <div class="profile-hero-overlay"></div>
+                <div class="profile-hero-content">
+                    <div class="profile-avatar" id="profileAvatar">
+                        <svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>
+                    </div>
+                    <div class="profile-main">
+                        <div class="profile-name-row">
+                            <h1 class="profile-name" id="profileName"></h1>
+                            <button type="button" class="profile-edit-pen" id="profileEditPen" title="修改资料" aria-label="修改资料" data-i18n-title="profileEdit" data-i18n-aria="profileEdit" hidden>
+                                <svg class="icon" aria-hidden="true"><use href="#i-pencil"></use></svg>
+                            </button>
+                        </div>
+                        <div class="profile-stats" id="profileStats"></div>
+                        <div class="profile-bio" id="profileBio"></div>
+                        <div class="profile-hero-actions" id="profileHeroActions"></div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="profile-works-head">
+                <span data-i18n="profileWorks">作品</span>
+                <b id="profileWorksCount">0</b>
+            </div>
+            <div class="profile-works post-grid" id="profileWorks"></div>
+        </div>
+    </div>
+
+    <!-- 修改个人资料 -->
+    <div class="modal-mask" id="profileEditModal" hidden>
+        <div class="modal profile-edit-modal">
+            <div class="modal-head">
+                <span data-i18n="profileEdit">修改资料</span>
+                <button type="button" class="modal-close" id="profileEditClose">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="edit-banner" id="editBannerPreview">
+                    <label class="edit-upload">
+                        <span data-i18n="profileChangeBanner">更换背景</span>
+                        <input type="file" id="editBannerFile" accept="image/*" hidden>
+                    </label>
+                    <button type="button" class="edit-clear" id="editBannerClear" data-i18n="profileRemove">移除</button>
+                </div>
+                <div class="edit-avatar-row">
+                    <div class="edit-avatar" id="editAvatarPreview">
+                        <svg class="icon" aria-hidden="true"><use href="#i-user"></use></svg>
+                    </div>
+                    <div class="edit-avatar-actions">
+                        <label class="edit-upload">
+                            <span data-i18n="profileChangeAvatar">更换头像</span>
+                            <input type="file" id="editAvatarFile" accept="image/*" hidden>
+                        </label>
+                        <button type="button" class="edit-clear" id="editAvatarClear" data-i18n="profileRemove">移除</button>
+                    </div>
+                </div>
+                <div class="edit-status" id="editStatus"></div>
+                <label class="edit-label" for="editDisplayName" data-i18n="profileNickname">昵称</label>
+                <input type="text" id="editDisplayName" maxlength="30" class="edit-input">
+                <label class="edit-label" for="editBio" data-i18n="profileBioLabel">简介</label>
+                <textarea id="editBio" maxlength="200" rows="3" class="edit-input" data-i18n-placeholder="profileBioPlaceholder"></textarea>
+            </div>
+            <div class="edit-footer">
+                <button type="button" class="btn" id="profileEditCancel" data-i18n="cancel">取消</button>
+                <button type="button" class="btn-post" id="profileEditSave" data-i18n="profileSave">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 关注/粉丝列表 -->
+    <div class="modal-mask" id="connectionsModal" hidden>
+        <div class="modal connections-modal">
+            <div class="modal-head">
+                <span id="connectionsTitle">关注</span>
+                <button type="button" class="modal-close" id="connectionsClose">×</button>
+            </div>
+            <div class="connections-tabs">
+                <button type="button" class="connections-tab active" data-type="following" data-i18n="profileFollowing">关注</button>
+                <button type="button" class="connections-tab" data-type="followers" data-i18n="profileFollowers">粉丝</button>
+            </div>
+            <div class="modal-body" id="connectionsList"></div>
         </div>
     </div>
 
@@ -289,9 +376,9 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261119s"></script>
-    <script src="js/i18n.js?v=20261119s"></script>
-    <script src="js/chat.js?v=20261119s"></script>
-    <script src="js/script.js?v=20261119s"></script>
+    <script src="js/auth.js?v=20261119u"></script>
+    <script src="js/i18n.js?v=20261119u"></script>
+    <script src="js/chat.js?v=20261119u"></script>
+    <script src="js/script.js?v=20261119u"></script>
 </body>
 </html>

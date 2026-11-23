@@ -1,6 +1,7 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS follows;
 DROP TABLE IF EXISTS post_reads;
 DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS post_coins;
@@ -21,6 +22,10 @@ CREATE TABLE users (
     is_admin    INTEGER NOT NULL DEFAULT 0,
     coins       INTEGER NOT NULL DEFAULT 10,
     last_daily_coin TEXT DEFAULT '',
+    display_name TEXT DEFAULT '',
+    bio         TEXT DEFAULT '',
+    avatar      TEXT DEFAULT '',
+    banner      TEXT DEFAULT '',
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -117,4 +122,12 @@ CREATE TABLE post_reads (
     username    TEXT NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (post_id, username)
+);
+
+CREATE TABLE follows (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    follower    TEXT NOT NULL,
+    following   TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (follower, following)
 );

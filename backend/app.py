@@ -158,7 +158,7 @@ def _get_current_user():
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT u.id, u.email, u.username, u.is_admin, u.coins FROM sessions s "
+            "SELECT u.id, u.email, u.username, u.is_admin, u.coins, u.display_name, u.bio, u.avatar, u.banner FROM sessions s "
             "JOIN users u ON u.username = s.username "
             "WHERE s.token=? AND s.expires>?",
             (token, time.time()),
@@ -166,7 +166,7 @@ def _get_current_user():
         if not row:
             # 兼容旧 token（users.token 单列），迁移后会自动复制进 sessions
             row = conn.execute(
-                "SELECT id, email, username, is_admin, coins FROM users WHERE token=? AND token_expires>?",
+                "SELECT id, email, username, is_admin, coins, display_name, bio, avatar, banner FROM users WHERE token=? AND token_expires>?",
                 (token, time.time()),
             ).fetchone()
         return dict(row) if row else None
@@ -261,9 +261,9 @@ def register():
             return jsonify({"error": "这个昵称已经被注册了"}), 400
         today = _today_shanghai()
         conn.execute(
-            "INSERT INTO users (email, username, password, is_admin, coins, last_daily_coin) "
-            "VALUES (?, ?, ?, 0, 10, ?)",
-            (fake_email, username, pwd_hash, today),
+            "INSERT INTO users (email, username, password, is_admin, coins, last_daily_coin, display_name) "
+            "VALUES (?, ?, ?, 0, 10, ?, ?)",
+            (fake_email, username, pwd_hash, today, username),
         )
         conn.commit()
         token = secrets.token_urlsafe(32)
@@ -284,7 +284,9 @@ def register():
         return jsonify({"error": "这个昵称已经被注册了"}), 400
     finally:
         conn.close()
-    return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username, "is_admin": 0, "coins": 10}})
+    return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username,
+                                             "is_admin": 0, "coins": 10, "display_name": username,
+                                             "bio": "", "avatar": "", "banner": ""}})
 
 
 @app.route("/api/login", methods=["POST"])
@@ -315,7 +317,10 @@ def login():
         return jsonify({
             "token": token,
             "user": {"id": row["id"], "email": row["email"], "username": row["username"],
-                     "is_admin": row["is_admin"], "coins": coins}
+                     "is_admin": row["is_admin"], "coins": coins,
+                     "display_name": row["display_name"] or row["username"],
+                     "bio": row["bio"] or "", "avatar": row["avatar"] or "",
+                     "banner": row["banner"] or ""}
         })
     finally:
         conn.close()
@@ -682,7 +687,8 @@ def user_profile(username):
     conn = get_db()
     try:
         user = conn.execute(
-            "SELECT id, username, is_admin, created_at FROM users WHERE username=?",
+            "SELECT id, username, display_name, bio, avatar, banner, is_admin, created_at "
+            "FROM users WHERE username=?",
             (username,),
         ).fetchone()
         if not user:
@@ -690,9 +696,27 @@ def user_profile(username):
         total = conn.execute(
             "SELECT COUNT(*) AS c FROM posts WHERE author=?", (username,)
         ).fetchone()["c"]
+        comments_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM comments WHERE author=?", (username,)
+        ).fetchone()["c"]
+        likes_total = conn.execute(
+            "SELECT COALESCE(SUM(likes), 0) AS c FROM posts WHERE author=?", (username,)
+        ).fetchone()["c"]
+        following_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM follows WHERE follower=?", (username,)
+        ).fetchone()["c"]
+        followers_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM follows WHERE following=?", (username,)
+        ).fetchone()["c"]
+        is_following = False
+        if viewer:
+            is_following = conn.execute(
+                "SELECT 1 AS x FROM follows WHERE follower=? AND following=?",
+                (viewer["username"], username),
+            ).fetchone() is not None
         rows = conn.execute(
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p WHERE p.author=? ORDER BY p.id DESC LIMIT 20""",
+               FROM posts p WHERE p.author=? ORDER BY p.id DESC LIMIT 500""",
             (username,),
         ).fetchall()
         level = 4 if (user["is_admin"] or 0) else _level_from_post_count(total)
@@ -700,13 +724,151 @@ def user_profile(username):
             "user": {
                 "id": user["id"],
                 "username": user["username"],
+                "display_name": user["display_name"] or user["username"],
+                "bio": user["bio"] or "",
+                "avatar": user["avatar"] or "",
+                "banner": user["banner"] or "",
                 "is_admin": user["is_admin"] or 0,
                 "level": level,
                 "post_count": total,
+                "comments_count": comments_count,
+                "likes_total": likes_total,
+                "following_count": following_count,
+                "followers_count": followers_count,
+                "is_following": is_following,
+                "is_self": bool(viewer and viewer["username"] == username),
                 **_time_fields(user["created_at"], viewer_admin),
             },
             "posts": [_row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin) for r in rows],
         })
+    finally:
+        conn.close()
+
+
+@app.route("/api/users/<username>/follow", methods=["POST"])
+@login_required
+def follow_user(username):
+    me = request.current_user["username"]
+    if username == me:
+        return jsonify({"error": "不能关注自己"}), 400
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    conn = get_db()
+    try:
+        target = conn.execute("SELECT username FROM users WHERE username=?", (username,)).fetchone()
+        if not target:
+            return jsonify({"error": "用户不存在"}), 404
+        if on:
+            conn.execute(
+                "INSERT INTO follows (follower, following) VALUES (?, ?) "
+                "ON CONFLICT (follower, following) DO NOTHING",
+                (me, username),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM follows WHERE follower=? AND following=?", (me, username)
+            )
+        conn.commit()
+        following_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM follows WHERE follower=?", (username,)
+        ).fetchone()["c"]
+        followers_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM follows WHERE following=?", (username,)
+        ).fetchone()["c"]
+        return jsonify({
+            "ok": True,
+            "is_following": on,
+            "following_count": following_count,
+            "followers_count": followers_count,
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/users/<username>/connections", methods=["GET"])
+def user_connections(username):
+    typ = request.args.get("type", "following")
+    if typ not in ("following", "followers"):
+        return jsonify({"error": "type 只能是 following 或 followers"}), 400
+    viewer = _get_current_user()
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+            return jsonify({"error": "用户不存在"}), 404
+        if typ == "followers":
+            rows = conn.execute(
+                "SELECT u.username, u.display_name, u.avatar FROM follows f "
+                "JOIN users u ON u.username=f.follower WHERE f.following=? ORDER BY f.id DESC LIMIT 500",
+                (username,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT u.username, u.display_name, u.avatar FROM follows f "
+                "JOIN users u ON u.username=f.following WHERE f.follower=? ORDER BY f.id DESC LIMIT 500",
+                (username,),
+            ).fetchall()
+        following_set = set()
+        if viewer:
+            following_set = {
+                r["following"] for r in conn.execute(
+                    "SELECT following FROM follows WHERE follower=?", (viewer["username"],)
+                ).fetchall()
+            }
+        return jsonify({
+            "type": typ,
+            "users": [{
+                "username": r["username"],
+                "display_name": r["display_name"] or r["username"],
+                "avatar": r["avatar"] or "",
+                "is_following": r["username"] in following_set,
+                "is_self": bool(viewer and viewer["username"] == r["username"]),
+            } for r in rows],
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/follows", methods=["GET"])
+@login_required
+def list_follows():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT following FROM follows WHERE follower=? ORDER BY id DESC",
+            (request.current_user["username"],),
+        ).fetchall()
+        return jsonify({"following": [r["following"] for r in rows]})
+    finally:
+        conn.close()
+
+
+@app.route("/api/me/profile", methods=["POST"])
+@login_required
+def update_my_profile():
+    data = request.get_json(silent=True) or {}
+    display_name = (data.get("display_name") or "").strip()[:30] or request.current_user["username"]
+    bio = (data.get("bio") or "").strip()[:200]
+    avatar = (data.get("avatar") or "").strip()
+    banner = (data.get("banner") or "").strip()
+    for value, label in ((avatar, "头像"), (banner, "背景")):
+        if value and (len(value) > 2048 or not (value.startswith("https://") or value.startswith("http://"))):
+            return jsonify({"error": f"{label}地址不合法"}), 400
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE users SET display_name=?, bio=?, avatar=?, banner=? WHERE id=?",
+            (display_name, bio, avatar, banner, request.current_user["id"]),
+        )
+        conn.commit()
+        return jsonify({"ok": True, "user": {
+            "id": request.current_user["id"],
+            "username": request.current_user["username"],
+            "display_name": display_name,
+            "bio": bio,
+            "avatar": avatar,
+            "banner": banner,
+            "is_admin": request.current_user.get("is_admin") or 0,
+        }})
     finally:
         conn.close()
 
@@ -1466,6 +1628,7 @@ def admin_delete_user(uid):
             "DELETE FROM post_reads WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
             (username,),
         )
+        conn.execute("DELETE FROM follows WHERE follower=? OR following=?", (username, username))
         conn.execute(
             "DELETE FROM post_likes WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
             (username,),
@@ -1544,6 +1707,10 @@ def _migrate():
                     token_expires INTEGER DEFAULT 0,
                     coins INTEGER DEFAULT 10,
                     last_daily_coin TEXT DEFAULT '',
+                    display_name TEXT DEFAULT '',
+                    bio TEXT DEFAULT '',
+                    avatar TEXT DEFAULT '',
+                    banner TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1651,6 +1818,15 @@ def _migrate():
                     UNIQUE (post_id, username)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS follows (
+                    id SERIAL PRIMARY KEY,
+                    follower TEXT NOT NULL,
+                    following TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (follower, following)
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1731,6 +1907,15 @@ def _migrate():
                     UNIQUE (post_id, username)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS follows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    follower TEXT NOT NULL,
+                    following TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (follower, following)
+                )
+            """)
             conn.commit()
 
         if not has_likes_table:
@@ -1754,12 +1939,14 @@ def _migrate():
                 print(f"[迁移] 帖子点赞/投币计数清零跳过：{e}")
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
-        text_cols = {"tags", "email", "token", "image_url", "images", "reply_to", "last_daily_coin"}
+        text_cols = {"tags", "email", "token", "image_url", "images", "reply_to", "last_daily_coin",
+                     "display_name", "bio", "avatar", "banner"}
         col_sets = {}
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
             ("comments", ["likes", "parent_id", "reply_to"]),
-            ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin"]),
+            ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
+                       "display_name", "bio", "avatar", "banner"]),
         ]:
             if is_pg:
                 existing = [r["column_name"] for r in conn.execute(
