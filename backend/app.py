@@ -846,29 +846,70 @@ def list_follows():
 @login_required
 def update_my_profile():
     data = request.get_json(silent=True) or {}
-    display_name = (data.get("display_name") or "").strip()[:30] or request.current_user["username"]
+    new_name = (data.get("display_name") or "").strip()
+    if len(new_name) < 1:
+        return jsonify({"error": "昵称不能为空"}), 400
+    new_name = new_name[:30]
     bio = (data.get("bio") or "").strip()[:200]
     avatar = (data.get("avatar") or "").strip()
     banner = (data.get("banner") or "").strip()
     for value, label in ((avatar, "头像"), (banner, "背景")):
         if value and (len(value) > 2048 or not (value.startswith("https://") or value.startswith("http://"))):
             return jsonify({"error": f"{label}地址不合法"}), 400
+    old_name = request.current_user["username"]
     conn = get_db()
     try:
+        if new_name != old_name:
+            taken = conn.execute(
+                "SELECT id FROM users WHERE username=? AND id<>?",
+                (new_name, request.current_user["id"]),
+            ).fetchone()
+            if taken:
+                return jsonify({"error": "这个昵称已经被使用了"}), 400
+            # 昵称同时是登录名：同步更新所有历史署名与账号关联
+            conn.execute("UPDATE posts SET author=? WHERE author=?", (new_name, old_name))
+            conn.execute("UPDATE comments SET author=? WHERE author=?", (new_name, old_name))
+            conn.execute("UPDATE comment_likes SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute("UPDATE post_likes SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute("UPDATE post_coins SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute("UPDATE post_reads SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute(
+                "UPDATE messages SET sender=? WHERE sender=?", (new_name, old_name)
+            )
+            conn.execute(
+                "UPDATE messages SET receiver=? WHERE receiver=?", (new_name, old_name)
+            )
+            conn.execute("UPDATE notifs SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute("UPDATE follows SET follower=? WHERE follower=?", (new_name, old_name))
+            conn.execute("UPDATE follows SET following=? WHERE following=?", (new_name, old_name))
+            conn.execute("UPDATE sessions SET username=? WHERE username=?", (new_name, old_name))
+            conn.execute("UPDATE audit_log SET actor=? WHERE actor=?", (new_name, old_name))
+            conn.execute(
+                "UPDATE users SET username=?, display_name=? WHERE id=?",
+                (new_name, new_name, request.current_user["id"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET display_name=? WHERE id=?",
+                (new_name, request.current_user["id"]),
+            )
         conn.execute(
-            "UPDATE users SET display_name=?, bio=?, avatar=?, banner=? WHERE id=?",
-            (display_name, bio, avatar, banner, request.current_user["id"]),
+            "UPDATE users SET bio=?, avatar=?, banner=? WHERE id=?",
+            (bio, avatar, banner, request.current_user["id"]),
         )
         conn.commit()
         return jsonify({"ok": True, "user": {
             "id": request.current_user["id"],
-            "username": request.current_user["username"],
-            "display_name": display_name,
+            "username": new_name,
+            "display_name": new_name,
             "bio": bio,
             "avatar": avatar,
             "banner": banner,
             "is_admin": request.current_user.get("is_admin") or 0,
         }})
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

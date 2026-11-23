@@ -1903,16 +1903,24 @@ async function saveProfileEdit() {
             throw new Error(err.error || T('profileSaveFailed'));
         }
         const data = await res.json();
+        const oldUsername = currentProfileData.user.username;
+        currentProfileData.user.username = data.user.username;
         currentProfileData.user.display_name = data.user.display_name;
         currentProfileData.user.bio = data.user.bio;
         currentProfileData.user.avatar = data.user.avatar;
         currentProfileData.user.banner = data.user.banner;
+        currentProfileUsername = data.user.username;
         if (Auth.user) {
+            Auth.user.username = data.user.username;
             Auth.user.display_name = data.user.display_name;
             Auth.user.bio = data.user.bio;
             Auth.user.avatar = data.user.avatar;
             Auth.user.banner = data.user.banner;
             Auth.save(Auth.token, Auth.user);
+        }
+        if (oldUsername && oldUsername !== data.user.username) {
+            // 昵称变了：刷新首页作者名，后续新帖也会用新昵称
+            fetchPosts();
         }
         updateHeaderAvatar();
         const scroll = document.getElementById('profilePage').scrollTop;

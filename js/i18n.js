@@ -71,6 +71,7 @@
         profileNickname: { zh: '昵称', en: 'Nickname' },
         profileBioLabel: { zh: '简介', en: 'Bio' },
         profileBioPlaceholder: { zh: '介绍一下自己...', en: 'Tell people about yourself...' },
+        profileRenameHint: { zh: '修改昵称会同步更新登录名和历史帖子/评论署名', en: 'Changing your nickname also changes your login name and past post/comment names.' },
         profileSave: { zh: '保存', en: 'Save' },
         profileFollow: { zh: '关注', en: 'Follow' },
         profileFollowingBtn: { zh: '已关注', en: 'Following' },

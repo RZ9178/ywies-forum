@@ -2255,6 +2255,12 @@ input[readonly] {
 .edit-avatar-actions .edit-clear { position: static; background: transparent; color: var(--danger); }
 .edit-status { min-height: 18px; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
 .edit-label { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--text-dim); }
+.edit-hint {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-dim);
+}
 .edit-input {
     width: 100%;
     padding: 9px 12px;
