@@ -842,6 +842,49 @@ def list_follows():
         conn.close()
 
 
+def _rename_user_everywhere(conn, old_name, new_name):
+    """昵称即登录名：改名时同步所有历史署名和账号关联。"""
+    conn.execute("UPDATE posts SET author=? WHERE author=?", (new_name, old_name))
+    conn.execute("UPDATE comments SET author=? WHERE author=?", (new_name, old_name))
+    conn.execute("UPDATE comment_likes SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE post_likes SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE post_coins SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE post_reads SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE messages SET sender=? WHERE sender=?", (new_name, old_name))
+    conn.execute("UPDATE messages SET receiver=? WHERE receiver=?", (new_name, old_name))
+    conn.execute("UPDATE notifs SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE follows SET follower=? WHERE follower=?", (new_name, old_name))
+    conn.execute("UPDATE follows SET following=? WHERE following=?", (new_name, old_name))
+    conn.execute("UPDATE sessions SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE audit_log SET actor=? WHERE actor=?", (new_name, old_name))
+    conn.execute("UPDATE users SET username=?, display_name=? WHERE username=?", (new_name, new_name, old_name))
+
+
+def _repair_display_names(conn):
+    """修复旧版本只改 display_name、没改 username 的账号。"""
+    rows = conn.execute(
+        "SELECT username, display_name FROM users "
+        "WHERE display_name IS NOT NULL AND display_name<>'' AND display_name<>username"
+    ).fetchall()
+    fixed = 0
+    for r in rows:
+        old = r["username"]
+        new = (r["display_name"] or "").strip()[:30]
+        if not new or new == old:
+            continue
+        if conn.execute("SELECT id FROM users WHERE username=?", (new,)).fetchone():
+            continue
+        try:
+            _rename_user_everywhere(conn, old, new)
+            conn.commit()
+            fixed += 1
+            print(f"[迁移] 昵称同步：{old} -> {new}")
+        except Exception as e:
+            conn.rollback()
+            print(f"[迁移] 昵称同步跳过 {old}: {e}")
+    return fixed
+
+
 @app.route("/api/me/profile", methods=["POST"])
 @login_required
 def update_my_profile():
@@ -866,28 +909,7 @@ def update_my_profile():
             ).fetchone()
             if taken:
                 return jsonify({"error": "这个昵称已经被使用了"}), 400
-            # 昵称同时是登录名：同步更新所有历史署名与账号关联
-            conn.execute("UPDATE posts SET author=? WHERE author=?", (new_name, old_name))
-            conn.execute("UPDATE comments SET author=? WHERE author=?", (new_name, old_name))
-            conn.execute("UPDATE comment_likes SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute("UPDATE post_likes SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute("UPDATE post_coins SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute("UPDATE post_reads SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute(
-                "UPDATE messages SET sender=? WHERE sender=?", (new_name, old_name)
-            )
-            conn.execute(
-                "UPDATE messages SET receiver=? WHERE receiver=?", (new_name, old_name)
-            )
-            conn.execute("UPDATE notifs SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute("UPDATE follows SET follower=? WHERE follower=?", (new_name, old_name))
-            conn.execute("UPDATE follows SET following=? WHERE following=?", (new_name, old_name))
-            conn.execute("UPDATE sessions SET username=? WHERE username=?", (new_name, old_name))
-            conn.execute("UPDATE audit_log SET actor=? WHERE actor=?", (new_name, old_name))
-            conn.execute(
-                "UPDATE users SET username=?, display_name=? WHERE id=?",
-                (new_name, new_name, request.current_user["id"]),
-            )
+            _rename_user_everywhere(conn, old_name, new_name)
         else:
             conn.execute(
                 "UPDATE users SET display_name=? WHERE id=?",
@@ -2030,6 +2052,11 @@ def _migrate():
             conn.commit()
         except Exception as e:
             print(f"[迁移] 初始钱包跳过：{e}")
+
+        try:
+            _repair_display_names(conn)
+        except Exception as e:
+            print(f"[迁移] 昵称修复跳过：{e}")
 
         # 登录态迁移：把旧 users.token 复制进 sessions，升级后不用重新登录
         try:
