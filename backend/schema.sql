@@ -1,6 +1,7 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS post_reads;
 DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS post_coins;
 DROP TABLE IF EXISTS post_likes;
@@ -108,4 +109,12 @@ CREATE TABLE audit_log (
     post_id     INTEGER DEFAULT 0,
     content     TEXT DEFAULT '',
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE post_reads (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (post_id, username)
 );

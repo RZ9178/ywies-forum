@@ -32,6 +32,7 @@ let viewerDownloadName = 'image.jpg';
 let currentChatUser = '';
 let messageLockedBody = false;
 let commentSubmitting = false;
+let readsSyncing = false;
 
 function T(key, vars) {
     return window.I18n ? I18n.t(key, vars) : key;
@@ -83,7 +84,10 @@ window.addEventListener('DOMContentLoaded', function () {
         if (!allPosts.length || postsLoadFailed) fetchPosts();
     });
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden && (!allPosts.length || postsLoadFailed)) fetchPosts();
+        if (!document.hidden) {
+            if (!allPosts.length || postsLoadFailed) fetchPosts();
+            syncReads();
+        }
     });
     window.addEventListener('pageshow', function (e) {
         if (e.persisted) fetchPosts();
@@ -106,7 +110,7 @@ async function refreshSite() {
     if (!btn || btn.classList.contains('spinning')) return;
     btn.classList.add('spinning');
     try {
-        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot()]);
+        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot(), syncReads()]);
     } catch (e) {}
     setTimeout(function () { btn.classList.remove('spinning'); }, 400);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -125,7 +129,10 @@ function initAuth() {
             }
         });
     }
-    if (logged) refreshMe();
+    if (logged) {
+        refreshMe();
+        syncReads();
+    }
 }
 
 function doLogout() {
@@ -166,6 +173,28 @@ async function refreshMe() {
             updateCoinBalance();
         }
     } catch (e) {}
+}
+
+async function syncReads() {
+    if (!Auth.isLoggedIn() || readsSyncing) return;
+    readsSyncing = true;
+    try {
+        const res = await Auth.get('/api/reads');
+        if (!res.ok) return;
+        const data = await res.json();
+        const server = Array.isArray(data.posts) ? data.posts.slice() : [];
+        const local = getRead();
+        const missing = local.filter(function (id) { return server.indexOf(id) === -1; });
+        if (missing.length) {
+            await Auth.post('/api/reads/sync', { posts: missing });
+            missing.forEach(function (id) { if (server.indexOf(id) === -1) server.push(id); });
+        }
+        localStorage.setItem(K_READ, JSON.stringify(server));
+        render();
+    } catch (e) {
+    } finally {
+        readsSyncing = false;
+    }
 }
 
 async function fetchPosts() {
@@ -385,11 +414,10 @@ function renderList(list) {
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
         if (cover) {
-            card.className = 'post-card' + (isRead ? ' is-read' : '');
+            card.className = 'post-card ' + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-cover">' +
                     '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
-                    ( !isRead ? '<span class="card-unread" title="' + T('tooltipUnread') + '"></span>' : '') +
                 '</div>' +
                 '<div class="card-body">' +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
@@ -397,12 +425,9 @@ function renderList(list) {
                     metaHtml +
                 '</div>';
         } else {
-            card.className = 'post-card no-cover' + (isRead ? ' is-read' : '');
+            card.className = 'post-card no-cover ' + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-body">' +
-                    '<div class="card-text-top">' +
-                        ( !isRead ? '<span class="card-unread-inline" title="' + T('tooltipUnread') + '"></span>' : '') +
-                    '</div>' +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
                     tagsHtml +
                     (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
@@ -424,14 +449,12 @@ function renderList(list) {
 
         card.addEventListener('click', function (e) {
             if (e.target.closest('.card-author') || e.target.closest('.card-tag-chip')) return;
-            markRead(p.id);
             openDetail(p.id);
         });
         card.addEventListener('keydown', function (e) {
             if (e.target !== card) return;
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                markRead(p.id);
                 openDetail(p.id);
             }
         });
@@ -1064,6 +1087,7 @@ async function openDetail(postId) {
     try {
         const res = await Auth.get(API + '/' + postId);
         currentPost = await res.json();
+        markRead(postId);
     } catch (e) { return; }
     try {
         const res = await Auth.get(API + '/' + postId + '/comments');
@@ -1839,7 +1863,16 @@ function updateFooterButtons() {
 
 // ---------- localStorage ----------
 function getRead() { try { return JSON.parse(localStorage.getItem(K_READ) || '[]'); } catch (e) { return []; } }
-function markRead(id) { const r = getRead(); if (r.indexOf(id) === -1) { r.push(id); localStorage.setItem(K_READ, JSON.stringify(r)); } }
+function markRead(id) {
+    const r = getRead();
+    if (r.indexOf(id) === -1) {
+        r.push(id);
+        localStorage.setItem(K_READ, JSON.stringify(r));
+    }
+    if (Auth.isLoggedIn()) {
+        Auth.post('/api/posts/' + id + '/read').catch(function () {});
+    }
+}
 function getBookmarks() { try { return JSON.parse(localStorage.getItem(K_BOOKMARK) || '[]'); } catch (e) { return []; } }
 function toggleBookmark(id) {
     const bm = getBookmarks();

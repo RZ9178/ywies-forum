@@ -2011,3 +2011,7 @@ input[readonly] {
 .profile-action:hover { border-color: var(--accent); color: var(--accent); }
 .profile-action.danger { color: var(--danger); }
 .profile-action.danger:hover { border-color: var(--danger); color: var(--danger); }
+
+/* 未看帖子：标题橙色；读过后恢复正文色 */
+.post-card.is-unread .card-title { color: var(--unread); }
+.post-card.is-read .card-title { color: var(--text); }

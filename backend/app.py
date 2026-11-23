@@ -781,6 +781,7 @@ def delete_post(post_id):
         )
         conn.execute("DELETE FROM post_likes WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM post_coins WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM post_reads WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
         conn.commit()
@@ -1273,6 +1274,68 @@ def send_message(username):
         conn.close()
 
 
+@app.route("/api/reads", methods=["GET"])
+@login_required
+def list_reads():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT pr.post_id FROM post_reads pr JOIN posts p ON p.id=pr.post_id "
+            "WHERE pr.username=?",
+            (request.current_user["username"],),
+        ).fetchall()
+        return jsonify({"posts": [r["post_id"] for r in rows]})
+    finally:
+        conn.close()
+
+
+@app.route("/api/reads/sync", methods=["POST"])
+@login_required
+def sync_reads():
+    data = request.get_json(silent=True) or {}
+    raw = data.get("posts")
+    if not isinstance(raw, list):
+        return jsonify({"error": "posts 必须是数组"}), 400
+    ids = []
+    for x in raw[:2000]:
+        try:
+            pid = int(x)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0 and pid not in ids:
+            ids.append(pid)
+    conn = get_db()
+    try:
+        for pid in ids:
+            conn.execute(
+                "INSERT INTO post_reads (post_id, username) VALUES (?, ?) "
+                "ON CONFLICT (post_id, username) DO NOTHING",
+                (pid, request.current_user["username"]),
+            )
+        conn.commit()
+        return jsonify({"ok": True, "count": len(ids)})
+    finally:
+        conn.close()
+
+
+@app.route("/api/posts/<int:post_id>/read", methods=["POST"])
+@login_required
+def mark_post_read(post_id):
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+            return jsonify({"error": "帖子不存在"}), 404
+        conn.execute(
+            "INSERT INTO post_reads (post_id, username) VALUES (?, ?) "
+            "ON CONFLICT (post_id, username) DO NOTHING",
+            (post_id, request.current_user["username"]),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+    finally:
+        conn.close()
+
+
 @app.route("/api/tags", methods=["GET"])
 def list_tags():
     conn = get_db()
@@ -1398,6 +1461,11 @@ def admin_delete_user(uid):
         conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
         conn.execute("DELETE FROM post_likes WHERE username=?", (username,))
         conn.execute("DELETE FROM post_coins WHERE username=?", (username,))
+        conn.execute("DELETE FROM post_reads WHERE username=?", (username,))
+        conn.execute(
+            "DELETE FROM post_reads WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
+            (username,),
+        )
         conn.execute(
             "DELETE FROM post_likes WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
             (username,),
@@ -1574,6 +1642,15 @@ def _migrate():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_reads (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -1643,6 +1720,15 @@ def _migrate():
                     post_id INTEGER DEFAULT 0,
                     content TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_reads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, username)
                 )
             """)
             conn.commit()
@@ -1753,6 +1839,7 @@ def _migrate():
             conn.execute("DELETE FROM comment_likes WHERE comment_id NOT IN (SELECT id FROM comments)")
             conn.execute("DELETE FROM post_likes WHERE post_id NOT IN (SELECT id FROM posts)")
             conn.execute("DELETE FROM post_coins WHERE post_id NOT IN (SELECT id FROM posts)")
+            conn.execute("DELETE FROM post_reads WHERE post_id NOT IN (SELECT id FROM posts)")
             conn.commit()
         except Exception as e:
             print(f"[迁移] 点赞/投币清理跳过：{e}")
