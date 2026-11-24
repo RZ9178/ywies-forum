@@ -2387,14 +2387,29 @@ def _migrate():
                 (admin_username_env, admin_username_env),
             ).fetchone()
         if not target and admin_email:
-            target = conn.execute(
-                "SELECT id, username, email, is_admin FROM users "
-                "WHERE LOWER(COALESCE(email,''))=LOWER(?) "
-                "OR LOWER(username)=LOWER(?) "
-                "OR LOWER(COALESCE(display_name,''))=LOWER(?) "
-                "ORDER BY is_admin DESC, id LIMIT 1",
-                (admin_email, admin_email, admin_email),
-            ).fetchone()
+            # ADMIN_EMAIL 不含 @ 时优先当用户名/昵称匹配；
+            # 否则容易命中旧管理员被改过的 email，而不是个人账号。
+            if "@" not in admin_email:
+                target = conn.execute(
+                    "SELECT id, username, email, is_admin FROM users "
+                    "WHERE LOWER(username)=LOWER(?) OR LOWER(COALESCE(display_name,''))=LOWER(?) "
+                    "ORDER BY is_admin DESC, id LIMIT 1",
+                    (admin_email, admin_email),
+                ).fetchone()
+            else:
+                target = conn.execute(
+                    "SELECT id, username, email, is_admin FROM users "
+                    "WHERE LOWER(COALESCE(email,''))=LOWER(?) "
+                    "ORDER BY is_admin DESC, id LIMIT 1",
+                    (admin_email,),
+                ).fetchone()
+                if not target:
+                    target = conn.execute(
+                        "SELECT id, username, email, is_admin FROM users "
+                        "WHERE LOWER(username)=LOWER(?) OR LOWER(COALESCE(display_name,''))=LOWER(?) "
+                        "ORDER BY is_admin DESC, id LIMIT 1",
+                        (admin_email, admin_email),
+                    ).fetchone()
 
         if target:
             sets = ["is_admin=1"]
