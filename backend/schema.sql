@@ -46,6 +46,8 @@ CREATE TABLE posts (
     board       TEXT DEFAULT 'general',
     kind        TEXT DEFAULT 'post',
     format      TEXT DEFAULT 'plain',
+    music_artist TEXT DEFAULT '',
+    music_url   TEXT DEFAULT '',
     views       INTEGER NOT NULL DEFAULT 0,
     likes       INTEGER NOT NULL DEFAULT 0,
     coins       INTEGER NOT NULL DEFAULT 0,

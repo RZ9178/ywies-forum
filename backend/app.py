@@ -26,6 +26,8 @@ import time
 import uuid
 from functools import wraps
 
+import bleach
+import markdown as markdown_lib
 import psycopg2
 import psycopg2.extras
 import requests
@@ -523,6 +525,36 @@ def _parse_images(raw):
     return [u for u in value if isinstance(u, str) and u.strip()]
 
 
+_MD_TAGS = [
+    "p", "br", "strong", "em", "del", "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li", "blockquote", "pre", "code", "hr", "a", "img",
+    "table", "thead", "tbody", "tr", "th", "td", "sup", "sub",
+]
+_MD_ATTRS = {
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "title"],
+    "code": ["class"],
+    "th": ["align"],
+    "td": ["align"],
+}
+
+
+def _render_markdown(text):
+    html = markdown_lib.markdown(
+        text or "",
+        extensions=["extra", "sane_lists", "nl2br"],
+        output_format="html",
+    )
+    cleaned = bleach.clean(
+        html,
+        tags=_MD_TAGS,
+        attributes=_MD_ATTRS,
+        protocols=["http", "https", "mailto"],
+        strip=True,
+    )
+    return cleaned
+
+
 def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=False):
     keys = row.keys()
     images = _parse_images(row["images"]) if "images" in keys else []
@@ -551,6 +583,9 @@ def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=
         "board": (row["board"] if "board" in keys else "general") or "general",
         "kind": (row["kind"] if "kind" in keys else "post") or "post",
         "format": (row["format"] if "format" in keys else "plain") or "plain",
+        "music_artist": (row["music_artist"] if "music_artist" in keys else "") or "",
+        "music_url": (row["music_url"] if "music_url" in keys else "") or "",
+        "content_html": _render_markdown(row["content"]) if (("format" in keys and row["format"] == "markdown")) else "",
         "image": cover,
         "images": images,
         "has_image": has_image,
@@ -719,9 +754,20 @@ def create_post():
     content = (data.get("content") or "").strip()
     author = request.current_user["username"]
     board = _normalize_board(data.get("board") or "general")
-    kind = (data.get("kind") or ("poll" if board == "poll" else "post")).strip()
-    if kind not in ("post", "poll"):
+    requested_kind = (data.get("kind") or "").strip()
+    if board == "poll":
+        kind = "poll"
+    elif board in ("study", "share"):
+        kind = "poll" if requested_kind == "poll" else "note"
+    elif board == "music":
+        kind = "poll" if requested_kind == "poll" else "music"
+    else:
+        kind = "poll" if requested_kind == "poll" else "post"
+    if kind not in ("post", "poll", "note", "music"):
         kind = "post"
+    post_format = "markdown" if kind == "note" else "plain"
+    music_artist = (data.get("music_artist") or "").strip()[:100]
+    music_url = (data.get("music_url") or "").strip()
     raw_tags = (data.get("tags") or "").strip()
     tags_list = []
     for t in raw_tags.split(","):
@@ -731,8 +777,15 @@ def create_post():
     tags = ",".join(tags_list)
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
-    if kind != "poll" and not content:
+    if kind not in ("poll", "music") and not content:
         return jsonify({"error": "内容不能为空"}), 400
+    if kind == "music":
+        if not music_artist:
+            return jsonify({"error": "请填写歌手"}), 400
+        if not music_url or not (music_url.startswith("https://") or music_url.startswith("http://")):
+            return jsonify({"error": "请填写合法的音乐外链"}), 400
+        if len(music_url) > 2048:
+            return jsonify({"error": "音乐外链太长"}), 400
 
     poll_options = []
     if kind == "poll":
@@ -781,9 +834,9 @@ def create_post():
     conn = get_db()
     try:
         conn.execute(
-            "INSERT INTO posts (title, content, author, tags, image_url, images, board, kind, format) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (title, content, author, tags, cover, images_json, board, kind, "plain"),
+            "INSERT INTO posts (title, content, author, tags, image_url, images, board, kind, format, music_artist, music_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (title, content, author, tags, cover, images_json, board, kind, post_format, music_artist, music_url),
         )
         new_id = conn.max_id("posts")
         if kind == "poll":
@@ -805,6 +858,14 @@ def create_post():
         return jsonify(item), 201
     finally:
         conn.close()
+
+
+@app.route("/api/markdown/preview", methods=["POST"])
+@login_required
+def markdown_preview():
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "")[:30000]
+    return jsonify({"html": _render_markdown(content)})
 
 
 @app.route("/api/posts/<int:post_id>", methods=["GET"])
@@ -2307,6 +2368,8 @@ def _migrate():
                     board TEXT DEFAULT 'general',
                     kind TEXT DEFAULT 'post',
                     format TEXT DEFAULT 'plain',
+                    music_artist TEXT DEFAULT '',
+                    music_url TEXT DEFAULT '',
                     likes INTEGER DEFAULT 0,
                     coins INTEGER DEFAULT 0,
                     views INTEGER DEFAULT 0,
@@ -2606,7 +2669,7 @@ def _migrate():
             ("notifs", ["post_id"]),
             ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
                        "display_name", "bio", "avatar", "banner", "likes_public", "bookmarks_public"]),
-            ("posts", ["board", "kind", "format"]),
+            ("posts", ["board", "kind", "format", "music_artist", "music_url"]),
         ]:
             if is_pg:
                 existing = [r["column_name"] for r in conn.execute(

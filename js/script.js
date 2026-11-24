@@ -8,6 +8,9 @@ let allPosts = [];
 let currentTab = 'latest';
 let currentBoard = 'all';
 let publishBoard = 'general';
+let mdPreviewActive = false;
+let mdPreviewTimer = null;
+let mdPreviewRequest = 0;
 let currentTag = '';
 let searchQuery = '';
 let currentPost = null;
@@ -286,6 +289,12 @@ function savePostsCache(list) {
                 content: (p.content || '').slice(0, 500),
                 author: p.author || '',
                 tags: p.tags || '',
+                board: p.board || 'general',
+                kind: p.kind || 'post',
+                format: p.format || 'plain',
+                music_artist: p.music_artist || '',
+                music_url: p.music_url || '',
+                poll: p.poll || null,
                 image: (p.image && p.image.slice(0, 5).toLowerCase() !== 'data:') ? p.image : '',
                 images: (p.images || []).filter(function (u) {
                     return u && u.slice(0, 5).toLowerCase() !== 'data:';
@@ -425,7 +434,8 @@ function renderList(list) {
 
     list.forEach(function (p) {
         const isRead = read.indexOf(p.id) !== -1;
-        const cover = getPostImages(p)[0] || '';
+        const postImages = getPostImages(p);
+        const cover = postImages[0] || '';
         const tags = getPostTags(p);
         const tagsHtml = tags.length
             ? '<div class="card-tags">' + tags.map(function (t) {
@@ -435,6 +445,9 @@ function renderList(list) {
 
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
         const boardHtml = '<div class="card-board">' + boardPill(p.board) + '</div>';
+        const kindClass = p.kind === 'poll' ? 'card-kind-poll ' : (p.kind === 'note' ? 'card-kind-note ' : (p.kind === 'music' ? 'card-kind-music ' : ''));
+        const musicHtml = p.kind === 'music' ? ('<div class="music-card-preview"><svg class="icon" aria-hidden="true"><use href="#i-music"></use></svg>' +
+            escapeHtml(p.music_artist || '') + '</div>') : '';
         const pollHtml = (p.kind === 'poll' && p.poll) ? ('<div class="poll-preview">' +
             p.poll.options.map(function (o) {
                 return '<div class="poll-preview-row"><span class="poll-preview-label">' + escapeHtml(o.text) +
@@ -457,7 +470,7 @@ function renderList(list) {
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
         if (cover) {
-            card.className = 'post-card ' + (p.kind === 'poll' ? 'card-kind-poll ' : '') + (isRead ? 'is-read' : 'is-unread');
+            card.className = 'post-card ' + kindClass + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-cover">' +
                     '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
@@ -465,20 +478,27 @@ function renderList(list) {
                 '<div class="card-body">' +
                     boardHtml +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml + pollHtml +
+                    tagsHtml + musicHtml + pollHtml +
                     metaHtml +
                 '</div>';
         } else {
-            card.className = 'post-card no-cover ' + (p.kind === 'poll' ? 'card-kind-poll ' : '') + (isRead ? 'is-read' : 'is-unread');
+            card.className = 'post-card no-cover ' + kindClass + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-body">' +
                     boardHtml +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
                     tagsHtml +
                     (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
-                    pollHtml +
+                    musicHtml + pollHtml +
                     metaHtml +
                 '</div>';
+        }
+        if (postImages.length > 1) {
+            const countBadge = document.createElement('span');
+            countBadge.className = 'card-image-count';
+            countBadge.textContent = postImages.length;
+            const coverBox = card.querySelector('.card-cover');
+            if (coverBox) coverBox.appendChild(countBadge);
         }
 
         const img = card.querySelector('.card-cover img');
@@ -721,6 +741,13 @@ function bindPostModal() {
     document.getElementById('pollAddOption').addEventListener('click', function () {
         addPollOption('');
     });
+    document.querySelectorAll('[data-md]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            insertMarkdown(this.getAttribute('data-md'));
+        });
+    });
+    document.getElementById('mdPreviewBtn').addEventListener('click', toggleMarkdownPreview);
+    document.getElementById('postContent').addEventListener('input', scheduleMarkdownPreview);
 }
 
 function openPostModal() {
@@ -732,7 +759,13 @@ function openPostModal() {
     document.getElementById('postAuthor').value = Auth.user.username || '';
     document.getElementById('postTitle').value = '';
     document.getElementById('postContent').value = '';
+    document.getElementById('musicArtist').value = '';
+    document.getElementById('musicUrl').value = '';
     document.getElementById('postImage').value = '';
+    mdPreviewActive = false;
+    document.getElementById('mdPreview').hidden = true;
+    document.getElementById('postContent').hidden = false;
+    document.getElementById('mdPreviewBtn').textContent = T('mdPreview');
     document.getElementById('newTagInput').value = '';
     selectedTags = [];
     imageTaskId++;
@@ -798,17 +831,46 @@ function choosePublishBoard(board) {
     document.getElementById('publishForm').hidden = false;
     document.getElementById('publishBoardLabel').textContent = boardLabel(publishBoard);
     const isPoll = publishBoard === 'poll';
-    document.getElementById('postTitleLabel').textContent = T(isPoll ? 'pollQuestionLabel' : 'postTitleLabel');
-    document.getElementById('postTitle').placeholder = T(isPoll ? 'pollQuestionPlaceholder' : 'postTitlePlaceholder');
-    document.getElementById('postContentLabel').textContent = T(isPoll ? 'pollDescriptionLabel' : 'postContentLabel');
-    document.getElementById('postContent').placeholder = T(isPoll ? 'pollDescriptionPlaceholder' : 'postContentPlaceholder');
+    const isNote = publishBoard === 'study' || publishBoard === 'share';
+    const isMusic = publishBoard === 'music';
+
+    mdPreviewActive = false;
+    clearTimeout(mdPreviewTimer);
+    document.getElementById('mdPreview').hidden = true;
+    document.getElementById('postContent').hidden = false;
+    document.getElementById('mdPreviewBtn').textContent = T('mdPreview');
+    document.getElementById('mdToolbar').hidden = !isNote;
+    document.getElementById('mdPreviewBtn').hidden = !isNote;
+    document.getElementById('mdHint').hidden = !isNote;
+    document.getElementById('musicFields').hidden = !isMusic;
+    document.getElementById('postContent').rows = isNote ? 9 : 5;
+
+    let titleKey = 'postTitleLabel';
+    let contentKey = 'postContentLabel';
+    let titlePh = 'postTitlePlaceholder';
+    let contentPh = 'postContentPlaceholder';
+    if (isPoll) {
+        titleKey = 'pollQuestionLabel'; contentKey = 'pollDescriptionLabel';
+        titlePh = 'pollQuestionPlaceholder'; contentPh = 'pollDescriptionPlaceholder';
+    } else if (isMusic) {
+        titleKey = 'musicTitleLabel'; contentKey = 'musicContentLabel';
+        titlePh = 'postTitlePlaceholder'; contentPh = 'musicContentPlaceholder';
+    } else if (isNote) {
+        titleKey = 'noteTitleLabel'; contentKey = 'noteContentLabel';
+        titlePh = 'postTitlePlaceholder'; contentPh = 'noteContentPlaceholder';
+    }
+    document.getElementById('postTitleLabel').textContent = T(titleKey);
+    document.getElementById('postTitle').placeholder = T(titlePh);
+    document.getElementById('postContentLabel').textContent = T(contentKey);
+    document.getElementById('postContent').placeholder = T(contentPh);
+
     document.getElementById('pollFields').hidden = !isPoll;
     document.getElementById('imageGroup').hidden = isPoll;
     document.getElementById('tagGroup').hidden = isPoll;
     const note = document.getElementById('publishBoardNote');
     let noteText = '';
-    if (publishBoard === 'study' || publishBoard === 'share') noteText = T('publishMarkdownHint');
-    else if (publishBoard === 'music') noteText = T('publishMusicHint');
+    if (isNote) noteText = T('publishMarkdownHint');
+    else if (isMusic) noteText = T('musicHint');
     note.textContent = noteText;
     note.hidden = !noteText;
     document.getElementById('submitPostBtn').textContent = T('postSubmit');
@@ -1021,13 +1083,147 @@ function renderTagPicker() {
     });
 }
 
+function setMarkdownEditing() {
+    mdPreviewActive = false;
+    document.getElementById('mdPreview').hidden = true;
+    document.getElementById('postContent').hidden = false;
+    document.getElementById('mdPreviewBtn').textContent = T('mdPreview');
+}
+
+function insertMarkdown(action) {
+    const ta = document.getElementById('postContent');
+    if (!ta) return;
+    setMarkdownEditing();
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    const selected = ta.value.slice(start, end);
+    let insert = '';
+    let cursorStart = 0;
+    let cursorEnd = 0;
+    if (action === 'bold') {
+        insert = '**' + (selected || '加粗文字') + '**';
+        cursorStart = 2; cursorEnd = insert.length - 2;
+    } else if (action === 'italic') {
+        insert = '*' + (selected || '斜体文字') + '*';
+        cursorStart = 1; cursorEnd = insert.length - 1;
+    } else if (action === 'heading') {
+        insert = '## ' + (selected || '小标题');
+    } else if (action === 'list') {
+        insert = '- ' + (selected || '列表项');
+    } else if (action === 'quote') {
+        insert = '> ' + (selected || '引用');
+    } else if (action === 'code') {
+        insert = '\n```\n' + (selected || '// code') + '\n```\n';
+        cursorStart = 5; cursorEnd = insert.length - 5;
+    } else if (action === 'link') {
+        const url = prompt('链接地址（https://...）');
+        if (!url) return;
+        insert = '[' + (selected || '链接文字') + '](' + url.trim() + ')';
+    } else if (action === 'image') {
+        const url = prompt('图片地址（https://...）');
+        if (!url) return;
+        insert = '![' + (selected || '图片') + '](' + url.trim() + ')';
+    } else {
+        return;
+    }
+    ta.value = ta.value.slice(0, start) + insert + ta.value.slice(end);
+    const pos = start + (cursorStart || insert.length);
+    ta.focus();
+    ta.setSelectionRange(pos, start + (cursorEnd || insert.length));
+    scheduleMarkdownPreview();
+}
+
+function toggleMarkdownPreview() {
+    if (mdPreviewActive) {
+        setMarkdownEditing();
+        return;
+    }
+    mdPreviewActive = true;
+    document.getElementById('postContent').hidden = true;
+    document.getElementById('mdPreview').hidden = false;
+    document.getElementById('mdPreviewBtn').textContent = T('mdEdit');
+    updateMarkdownPreview();
+}
+
+function scheduleMarkdownPreview() {
+    if (!mdPreviewActive) return;
+    clearTimeout(mdPreviewTimer);
+    mdPreviewTimer = setTimeout(updateMarkdownPreview, 220);
+}
+
+async function updateMarkdownPreview() {
+    if (!mdPreviewActive) return;
+    const content = document.getElementById('postContent').value;
+    const box = document.getElementById('mdPreview');
+    if (!content.trim()) {
+        box.innerHTML = '<div class="md-preview-empty">' + T('mdPreviewEmpty') + '</div>';
+        return;
+    }
+    const requestId = ++mdPreviewRequest;
+    try {
+        const res = await Auth.post('/api/markdown/preview', { content: content });
+        if (requestId !== mdPreviewRequest) return;
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (requestId !== mdPreviewRequest || !mdPreviewActive) return;
+        box.innerHTML = data.html || '';
+        attachCodeCopy(box);
+    } catch (e) {
+        if (requestId === mdPreviewRequest) {
+            box.innerHTML = '<div class="md-preview-empty">' + T('previewFailed') + '</div>';
+        }
+    }
+}
+
+function attachCodeCopy(container) {
+    if (!container) return;
+    container.querySelectorAll('pre').forEach(function (pre) {
+        if (pre.querySelector('.code-copy')) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'code-copy';
+        btn.textContent = T('codeCopy');
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const code = pre.querySelector('code');
+            copyToClipboard((code || pre).textContent || '');
+            btn.textContent = T('codeCopied');
+            setTimeout(function () { btn.textContent = T('codeCopy'); }, 1200);
+        });
+        pre.appendChild(btn);
+    });
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+        return;
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+}
+
 async function submitPost() {
     const title = document.getElementById('postTitle').value.trim();
     const content = document.getElementById('postContent').value.trim();
     const isPoll = publishBoard === 'poll';
+    const isNote = publishBoard === 'study' || publishBoard === 'share';
+    const isMusic = publishBoard === 'music';
     if (!title) { alert(T('enterTitle')); return; }
-    if (!isPoll && !content) { alert(T('enterContent')); return; }
+    if (isNote && !content) { alert(T('enterContent')); return; }
+    if (!isPoll && !isNote && !isMusic && !content) { alert(T('enterContent')); return; }
     if (!isPoll && imageProcessing) { alert(T('uploadPending')); return; }
+    if (isMusic) {
+        if (!document.getElementById('musicArtist').value.trim()) { alert(T('musicArtistRequired')); return; }
+        const musicUrl = document.getElementById('musicUrl').value.trim();
+        if (!/^https?:\/\//i.test(musicUrl)) { alert(T('musicLinkFailed')); return; }
+    }
 
     let pollOptions = [];
     if (isPoll) {
@@ -1048,9 +1244,11 @@ async function submitPost() {
             title: title,
             content: content,
             board: publishBoard,
-            kind: isPoll ? 'poll' : 'post',
+            kind: isPoll ? 'poll' : (isNote ? 'note' : (isMusic ? 'music' : 'post')),
             tags: isPoll ? '' : selectedTags.join(','),
-            images: isPoll ? [] : uploadedImages
+            images: isPoll ? [] : uploadedImages,
+            music_artist: isMusic ? document.getElementById('musicArtist').value.trim() : '',
+            music_url: isMusic ? document.getElementById('musicUrl').value.trim() : ''
         };
         if (isPoll) body.poll_options = pollOptions;
         const res = await Auth.post(API, body);
@@ -1089,6 +1287,16 @@ function bindDetailModal() {
     });
     document.getElementById('detailImg').addEventListener('click', function (e) {
         if (e.target.tagName === 'IMG') openImageViewer(detailImages, detailImageIndex);
+    });
+    document.getElementById('detailGalleryPrev').addEventListener('click', function () {
+        if (detailImages.length <= 1) return;
+        detailImageIndex = (detailImageIndex - 1 + detailImages.length) % detailImages.length;
+        renderDetailImages();
+    });
+    document.getElementById('detailGalleryNext').addEventListener('click', function () {
+        if (detailImages.length <= 1) return;
+        detailImageIndex = (detailImageIndex + 1) % detailImages.length;
+        renderDetailImages();
     });
     document.getElementById('detailModal').addEventListener('click', function (e) {
         if (e.target === this) closeDetail();
@@ -1362,7 +1570,12 @@ function renderDetail() {
             });
         });
     }
-    document.getElementById('detailContent').innerHTML = linkify(p.content || '');
+    const contentBox = document.getElementById('detailContent');
+    contentBox.innerHTML = (p.format === 'markdown' && p.content_html)
+        ? p.content_html
+        : linkify(p.content || '');
+    attachCodeCopy(contentBox);
+    renderMusic(p);
     document.getElementById('detailTime').textContent = formatTime(p);
     document.getElementById('commentCount').textContent = allComments.length;
     // 登录后显示用户名
@@ -1370,6 +1583,23 @@ function renderDetail() {
     closeDetailMoreMenu();
     renderComments();
     updateFooterButtons();
+}
+
+function renderMusic(p) {
+    const box = document.getElementById('detailMusic');
+    if (!box) return;
+    if (!p || p.kind !== 'music' || !p.music_url) {
+        box.hidden = true;
+        box.innerHTML = '';
+        return;
+    }
+    box.hidden = false;
+    box.innerHTML =
+        '<span class="music-icon"><svg class="icon" aria-hidden="true"><use href="#i-music"></use></svg></span>' +
+        '<div class="music-info"><div class="music-title">' + escapeHtml(p.title || '') + '</div>' +
+            '<div class="music-artist">' + escapeHtml(p.music_artist || '') + '</div>' +
+            '<a class="music-link" href="' + escapeHtml(p.music_url) + '" target="_blank" rel="noopener noreferrer">' +
+                T('musicOpenLink') + ' ↗</a></div>';
 }
 
 function renderPoll(p) {
@@ -1789,13 +2019,20 @@ function getPostImages(post) {
 function renderDetailImages() {
     const box = document.getElementById('detailImg');
     const thumbs = document.getElementById('detailThumbs');
+    const nav = document.getElementById('detailGalleryNav');
+    const count = document.getElementById('detailGalleryCount');
     if (!detailImages.length) {
         box.innerHTML = '';
         if (thumbs) { thumbs.hidden = true; thumbs.innerHTML = ''; }
+        if (nav) nav.hidden = true;
         return;
     }
     if (detailImageIndex >= detailImages.length) detailImageIndex = 0;
     box.innerHTML = '<img src="' + escapeHtml(detailImages[detailImageIndex]) + '" alt="' + T('imageAlt') + '" decoding="async">';
+    if (nav && count) {
+        nav.hidden = detailImages.length <= 1;
+        count.textContent = (detailImageIndex + 1) + ' / ' + detailImages.length;
+    }
     if (!thumbs) return;
     if (detailImages.length <= 1) {
         thumbs.hidden = true;
@@ -2089,7 +2326,8 @@ function renderProfileWorks(posts, emptyKey, showAuthor) {
         return;
     }
     posts.forEach(function (p) {
-        const cover = getPostImages(p)[0] || '';
+        const postImages = getPostImages(p);
+        const cover = postImages[0] || '';
         const tags = getPostTags(p);
         const tagsHtml = tags.length
             ? '<div class="card-tags">' + tags.map(function (t) {
@@ -2097,6 +2335,9 @@ function renderProfileWorks(posts, emptyKey, showAuthor) {
             }).join('') + '</div>'
             : '';
         const boardHtml = '<div class="card-board">' + boardPill(p.board) + '</div>';
+        const kindClass = p.kind === 'poll' ? ' card-kind-poll' : (p.kind === 'note' ? ' card-kind-note' : (p.kind === 'music' ? ' card-kind-music' : ''));
+        const musicHtml = p.kind === 'music' ? ('<div class="music-card-preview"><svg class="icon" aria-hidden="true"><use href="#i-music"></use></svg>' +
+            escapeHtml(p.music_artist || '') + '</div>') : '';
         const pollHtml = (p.kind === 'poll' && p.poll) ? ('<div class="poll-preview">' +
             p.poll.options.map(function (o) {
                 return '<div class="poll-preview-row"><span class="poll-preview-label">' + escapeHtml(o.text) +
@@ -2113,7 +2354,7 @@ function renderProfileWorks(posts, emptyKey, showAuthor) {
         '</div>';
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         const card = document.createElement('article');
-        card.className = 'post-card profile-work-card' + (p.kind === 'poll' ? ' card-kind-poll' : '');
+        card.className = 'post-card profile-work-card' + kindClass;
         card.setAttribute('data-id', p.id);
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
@@ -2121,11 +2362,18 @@ function renderProfileWorks(posts, emptyKey, showAuthor) {
             card.innerHTML =
                 '<div class="card-cover"><img src="' + escapeHtml(cover) + '" alt="" decoding="async"></div>' +
                 '<div class="card-body">' + boardHtml + '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml + pollHtml + stats + '</div>';
+                    tagsHtml + musicHtml + pollHtml + stats + '</div>';
         } else {
             card.innerHTML =
                 '<div class="card-body">' + boardHtml + '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml + (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') + pollHtml + stats + '</div>';
+                    tagsHtml + (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') + musicHtml + pollHtml + stats + '</div>';
+        }
+        if (postImages.length > 1) {
+            const countBadge = document.createElement('span');
+            countBadge.className = 'card-image-count';
+            countBadge.textContent = postImages.length;
+            const coverBox = card.querySelector('.card-cover');
+            if (coverBox) coverBox.appendChild(countBadge);
         }
         const img = card.querySelector('.card-cover img');
         if (img) {

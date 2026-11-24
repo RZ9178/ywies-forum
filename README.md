@@ -103,6 +103,16 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 公开后其他用户可在个人主页看到；私密时只有自己可见
 - 迁移：`users.likes_public`、`users.bookmarks_public`
 
+## Markdown 笔记 / 音乐 / 代码块 / 图集
+
+- 学习、分享板块使用 Markdown 笔记：`kind=note`、`format=markdown`
+- 发布表单提供工具栏：加粗、斜体、标题、列表、引用、代码块、链接、图片；支持编辑/预览
+- Markdown 在后端用 `markdown` 渲染、`bleach` 清洗，禁止脚本和 `javascript:` 链接
+- 代码块支持一键复制
+- 音乐板块为结构化外链：歌曲名（标题）、歌手（`music_artist`）、外链（`music_url`），不上传音频；详情页显示外链按钮
+- 多图帖显示图片数量角标，详情支持上一张/下一张、计数、缩略图和原图查看
+- 后端依赖新增：`markdown`、`bleach`（见 `backend/requirements.txt`）
+
 ## 私信
 
 - `messages` 表：sender / receiver / content / is_read / created_at
