@@ -1323,6 +1323,7 @@ function bindTripleLike() {
     const CIRC = 106.81;
     let holding = false;
     let raf = null;
+    let holdTimer = null;
     let startTime = 0;
     let startX = 0;
     let startY = 0;
@@ -1330,6 +1331,7 @@ function bindTripleLike() {
     function reset() {
         holding = false;
         if (raf) { cancelAnimationFrame(raf); raf = null; }
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
         ring.classList.remove('active');
         if (circle) circle.style.strokeDashoffset = String(CIRC);
     }
@@ -1356,17 +1358,24 @@ function bindTripleLike() {
         raf = requestAnimationFrame(loop);
     }
 
+    function beginRing() {
+        if (!holding) return;
+        holdTimer = null;
+        startTime = performance.now();
+        if (circle) circle.style.strokeDashoffset = String(CIRC);
+        ring.classList.add('active');
+        raf = requestAnimationFrame(loop);
+    }
+
     function start(e) {
         if (!currentPost || !Auth.isLoggedIn()) return;
         if (e.button !== undefined && e.button !== 0) return;
         if (holding) return;
         holding = true;
-        startTime = performance.now();
         startX = e.clientX || 0;
         startY = e.clientY || 0;
-        if (circle) circle.style.strokeDashoffset = String(CIRC);
-        ring.classList.add('active');
-        raf = requestAnimationFrame(loop);
+        // 点按不出现圆环；按住约 0.2 秒后才开始画圈
+        holdTimer = setTimeout(beginRing, 200);
     }
 
     btn.addEventListener('pointerdown', start);
@@ -1419,23 +1428,40 @@ async function performTriple() {
         }));
     }
     if (needCoin) {
-        jobs.push(Auth.post(API + '/' + post.id + '/coin', { on: true, amount: 2 }).then(async function (res) {
+        const balance = (Auth.user && typeof Auth.user.coins === 'number') ? Auth.user.coins : 2;
+        const preferred = balance >= 2 ? 2 : 1;
+        async function giveCoin(amount) {
+            const res = await Auth.post(API + '/' + post.id + '/coin', { on: true, amount: amount });
             if (!res.ok) {
                 const err = await res.json().catch(function () { return {}; });
-                throw new Error(err.error || T('coinFailed'));
+                const error = new Error(err.error || T('coinFailed'));
+                error.amount = amount;
+                throw error;
             }
             const data = await res.json();
             post.coins = data.coins;
             post.coined = true;
             post.coin_amount = data.amount;
-            if (Auth.user) {
+            if (Auth.user && typeof data.balance === 'number') {
                 Auth.user.coins = data.balance;
                 Auth.save(Auth.token, Auth.user);
             }
             updateCoinBalance();
             const inList = allPosts.find(function (x) { return x.id === post.id; });
             if (inList) { inList.coins = post.coins; inList.coined = true; }
-        }));
+        }
+        jobs.push((async function () {
+            try {
+                await giveCoin(preferred);
+            } catch (e) {
+                // 余额刚好不足 2 币时自动降为 1 币
+                if (preferred === 2 && e.amount === 2 && /硬币不足|not enough/i.test(e.message)) {
+                    await giveCoin(1);
+                } else {
+                    throw e;
+                }
+            }
+        })());
     }
     if (!jobs.length) {
         showTripleToast(T('tripleAlready'));
@@ -1518,6 +1544,7 @@ function bindDetailModal() {
             if (!currentPost.liked && idx !== -1) liked.splice(idx, 1);
             localStorage.setItem(K_LIKED, JSON.stringify(liked));
             updateFooterButtons();
+            bounceFooterIcon('footerLike');
         } catch (e) {
             alert(T('likeFailed') + ' ' + e.message);
         } finally {
@@ -1560,6 +1587,7 @@ function bindDetailModal() {
             const data = await res.json();
             currentPost.bookmarked = !!data.bookmarked;
             updateFooterButtons();
+            bounceFooterIcon('footerStar');
         } catch (e) {
             alert(T('bookmarkFailed') + ' ' + e.message);
         } finally {
@@ -1670,6 +1698,7 @@ async function giveCoin(amount) {
         localStorage.setItem(K_COINED, JSON.stringify(coined));
         closeCoinModal();
         updateFooterButtons();
+        bounceFooterIcon('footerCoin');
     } catch (e) {
         options.forEach(function (b) { b.disabled = false; });
         alert(T('coinFailed') + ' ' + e.message);
@@ -1764,6 +1793,13 @@ function renderDetail() {
     document.getElementById('commentAuthor').value = Auth.isLoggedIn() ? Auth.user.username : '';
     closeDetailMoreMenu();
     renderComments();
+    // 打开详情时直接显示当前数量，不播放跨帖子滚动动画
+    const likeCountEl = document.getElementById('footerLikeCount');
+    const coinCountEl = document.getElementById('footerCoinCount');
+    const starCountEl = document.getElementById('footerStarCount');
+    if (likeCountEl) { likeCountEl.textContent = String(p.likes || 0); likeCountEl.dataset.count = String(p.likes || 0); }
+    if (coinCountEl) { coinCountEl.textContent = String(p.coins || 0); coinCountEl.dataset.count = String(p.coins || 0); }
+    if (starCountEl) { starCountEl.textContent = p.bookmarked ? '1' : '0'; starCountEl.dataset.count = p.bookmarked ? '1' : '0'; }
     updateFooterButtons();
 }
 
@@ -3104,6 +3140,67 @@ function closeImageViewer() {
     document.getElementById('imageViewerDownload').removeAttribute('href');
 }
 
+function bounceFooterIcon(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const icon = btn.querySelector('.icon');
+    if (!icon) return;
+    btn.classList.remove('icon-pop');
+    void btn.offsetWidth;
+    btn.classList.add('icon-pop');
+    clearTimeout(btn._iconPopTimer);
+    btn._iconPopTimer = setTimeout(function () { btn.classList.remove('icon-pop'); }, 420);
+}
+
+function makeRollWindow(oldText, newText, direction) {
+    const win = document.createElement('span');
+    win.className = 'digit-window';
+    const oldSpan = document.createElement('span');
+    oldSpan.className = 'digit digit-old ' + (direction > 0 ? 'roll-up' : 'roll-down');
+    oldSpan.textContent = oldText;
+    const newSpan = document.createElement('span');
+    newSpan.className = 'digit digit-new ' + (direction > 0 ? 'roll-in-up' : 'roll-in-down');
+    newSpan.textContent = newText;
+    win.appendChild(oldSpan);
+    win.appendChild(newSpan);
+    return win;
+}
+
+function animateCount(el, value) {
+    if (!el) return;
+    const newText = String(Math.max(0, Number(value) || 0));
+    const oldText = el.dataset.count != null ? el.dataset.count : (el.textContent || '0').trim();
+    if (oldText === newText) {
+        el.textContent = newText;
+        el.dataset.count = newText;
+        return;
+    }
+    el.classList.add('count-roll');
+    el.dataset.count = newText;
+    clearTimeout(el._countTimer);
+    const direction = (Number(newText) || 0) >= (Number(oldText) || 0) ? 1 : -1;
+    const numeric = /^\d+$/.test(oldText) && /^\d+$/.test(newText) && oldText.length === newText.length;
+    el.innerHTML = '';
+    if (!numeric) {
+        el.appendChild(makeRollWindow(oldText, newText, direction));
+    } else {
+        for (let i = 0; i < newText.length; i++) {
+            if (oldText[i] === newText[i]) {
+                const stat = document.createElement('span');
+                stat.className = 'digit-static';
+                stat.textContent = newText[i];
+                el.appendChild(stat);
+            } else {
+                el.appendChild(makeRollWindow(oldText[i], newText[i], direction));
+            }
+        }
+    }
+    el._countTimer = setTimeout(function () {
+        el.textContent = newText;
+        el.dataset.count = newText;
+    }, 420);
+}
+
 function updateFooterButtons() {
     if (!currentPost) return;
     const liked = currentPost.liked !== undefined
@@ -3112,9 +3209,9 @@ function updateFooterButtons() {
     const coined = currentPost.coined !== undefined
         ? !!currentPost.coined
         : (getCoined().indexOf(currentPost.id) !== -1);
-    document.getElementById('footerLikeCount').textContent = currentPost.likes || 0;
-    document.getElementById('footerCoinCount').textContent = currentPost.coins || 0;
-    document.getElementById('footerStarCount').textContent = currentPost.bookmarked ? 1 : 0;
+    animateCount(document.getElementById('footerLikeCount'), currentPost.likes || 0);
+    animateCount(document.getElementById('footerCoinCount'), currentPost.coins || 0);
+    animateCount(document.getElementById('footerStarCount'), currentPost.bookmarked ? 1 : 0);
     const likeBtn = document.getElementById('footerLike');
     const coinBtn = document.getElementById('footerCoin');
     const isOwn = !!(Auth.isLoggedIn() && Auth.user && currentPost.author === Auth.user.username);

@@ -2908,3 +2908,54 @@ input[readonly] {
 .triple-toast[hidden] { display: none; }
 .triple-toast.error { background: #dc2626; }
 .triple-toast.success { background: #0f172a; }
+
+/* 点按图标跳动 */
+.footer-btn .icon { transform-origin: center; }
+.footer-btn.icon-pop .icon { animation: footer-icon-pop .38s cubic-bezier(.2, .8, .3, 1); }
+@keyframes footer-icon-pop {
+    0% { transform: scale(1); }
+    32% { transform: scale(.78); }
+    100% { transform: scale(1); }
+}
+
+/* 计分板式数字滚动 */
+.count-roll {
+    display: inline-flex;
+    align-items: center;
+    height: 1.2em;
+    overflow: hidden;
+    vertical-align: middle;
+    font-variant-numeric: tabular-nums;
+}
+.digit-window {
+    position: relative;
+    display: inline-block;
+    width: 1ch;
+    height: 1.2em;
+    overflow: hidden;
+    vertical-align: top;
+}
+.digit-static,
+.digit-old,
+.digit-new {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.2em;
+    line-height: 1.2;
+}
+.digit-static {
+    display: inline-flex;
+    width: 1ch;
+    vertical-align: top;
+}
+.digit-old,
+.digit-new { position: absolute; inset: 0; }
+.digit-old.roll-up { animation: digit-roll-up .38s cubic-bezier(.3, .8, .4, 1) forwards; }
+.digit-new.roll-in-up { animation: digit-roll-in-up .38s cubic-bezier(.3, .8, .4, 1) forwards; }
+.digit-old.roll-down { animation: digit-roll-down .38s cubic-bezier(.3, .8, .4, 1) forwards; }
+.digit-new.roll-in-down { animation: digit-roll-in-down .38s cubic-bezier(.3, .8, .4, 1) forwards; }
+@keyframes digit-roll-up { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+@keyframes digit-roll-in-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes digit-roll-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
+@keyframes digit-roll-in-down { from { transform: translateY(-100%); } to { transform: translateY(0); } }
