@@ -31,7 +31,10 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 
 - 地址：`https://ywies-forum.onrender.com/admin.html`
 - 管理员账号：`管理员`，也可以直接用管理员邮箱 `admin@ywies.local` 登录
-- 密码由 Render 环境变量 `ADMIN_PASSWORD` 控制；服务启动时会把管理员密码同步成该值。没有设置时本地默认是 `admin123`，线上务必设置一个强密码
+- 密码由 Render 环境变量 `ADMIN_PASSWORD` 控制；设置后会把管理员密码同步成该值。没有设置时本地默认是 `admin123`，线上务必设置一个强密码
+- 想把**个人账号**提升为管理员：在 Render 设置 `ADMIN_USERNAME=你的论坛昵称`，可选设置 `ADMIN_PASSWORD=新密码`，保存并重启服务
+- 注意：注册账号时保存的是 `昵称@ywies.local` 形式的占位邮箱，不是真实邮箱；因此只设置 `ADMIN_EMAIL=真实邮箱` 不会自动匹配个人账号，请优先用 `ADMIN_USERNAME`
+- 提升成功后需要退出再重新登录，`is_admin` 才会写进本地登录态
 - 功能：
   - 概览：用户/帖子/评论/管理员/硬币统计，最近帖子与用户
   - 帖子管理：搜索标题/正文/作者、有图/纯文字筛选、分页、查看详情、删除（写入删除快照）
@@ -46,7 +49,9 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 | 变量 | 说明 |
 |---|---|
 | `DATABASE_URL` | Supabase PostgreSQL 连接串；不配则走本地 SQLite |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 管理员账号，服务启动时同步 |
+| `ADMIN_USERNAME` | 要提升为管理员的论坛昵称（推荐，个人账号提权用这个） |
+| `ADMIN_EMAIL` | 管理员邮箱；也可填论坛昵称/用户名匹配已有账号 |
+| `ADMIN_PASSWORD` | 管理员密码；显式设置后会把指定管理员账号的密码同步成该值 |
 | `SMTP_HOST/PORT/USER/PASS` | 邮件验证码备用能力，当前注册流程不使用 |
 | `SUPABASE_URL` | Supabase 项目地址（`https://xxxx.supabase.co`） |
 | `SUPABASE_SERVICE_KEY` | Supabase 服务端密钥（secret / service_role），只配在 Render |

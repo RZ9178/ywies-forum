@@ -2371,27 +2371,76 @@ def _migrate():
             print(f"[迁移] 已清理 {deleted} 条旧种子测试帖子")
 
         # 管理员初始化 / 同步
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@ywies.local")
-        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-        admin_row = conn.execute("SELECT id, email FROM users WHERE is_admin=1").fetchone()
-        if not admin_row:
-            pwd_hash = generate_password_hash(admin_password)
-            conn.execute(
-                "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 1)",
-                (admin_email, "管理员", pwd_hash),
-            )
+        # ADMIN_USERNAME / ADMIN_EMAIL 指定的账号会被提升为管理员；
+        # 只有显式设置 ADMIN_PASSWORD 时才改密码，避免误重置个人账号密码。
+        admin_email_env = (os.getenv("ADMIN_EMAIL") or "").strip()
+        admin_password_env = (os.getenv("ADMIN_PASSWORD") or "").strip()
+        admin_username_env = (os.getenv("ADMIN_USERNAME") or "").strip()
+        admin_email = admin_email_env or "admin@ywies.local"
+        admin_password = admin_password_env or "admin123"
+
+        target = None
+        if admin_username_env:
+            target = conn.execute(
+                "SELECT id, username, email, is_admin FROM users "
+                "WHERE username=? OR display_name=? ORDER BY is_admin DESC, id LIMIT 1",
+                (admin_username_env, admin_username_env),
+            ).fetchone()
+        if not target and admin_email:
+            target = conn.execute(
+                "SELECT id, username, email, is_admin FROM users "
+                "WHERE LOWER(COALESCE(email,''))=LOWER(?) "
+                "OR LOWER(username)=LOWER(?) "
+                "OR LOWER(COALESCE(display_name,''))=LOWER(?) "
+                "ORDER BY is_admin DESC, id LIMIT 1",
+                (admin_email, admin_email, admin_email),
+            ).fetchone()
+
+        if target:
+            sets = ["is_admin=1"]
+            params = []
+            if admin_password_env:
+                sets.append("password=?")
+                params.append(generate_password_hash(admin_password_env))
+            if admin_email_env and "@" in admin_email:
+                sets.append("email=?")
+                params.append(admin_email)
+            params.append(target["id"])
+            conn.execute("UPDATE users SET " + ", ".join(sets) + " WHERE id=?", tuple(params))
             conn.commit()
-            print(f"[初始化] 管理员账号已创建：{admin_email}（密码见 ADMIN_PASSWORD 环境变量）")
+            print(f"[管理员] 已提升账号：{target['username']}")
+            if admin_password_env:
+                print("[管理员] 密码已按 ADMIN_PASSWORD 同步")
         else:
-            pwd_hash = generate_password_hash(admin_password)
-            conn.execute(
-                "UPDATE users SET email=?, password=? WHERE id=?",
-                (admin_email, pwd_hash, admin_row["id"]),
-            )
-            conn.commit()
-            if admin_row["email"] != admin_email:
-                print(f"[更新] 管理员邮箱已改为：{admin_email}")
-            print(f"[同步] 管理员密码已按环境变量更新")
+            admin_row = conn.execute(
+                "SELECT id, email FROM users WHERE is_admin=1 ORDER BY id LIMIT 1"
+            ).fetchone()
+            if not admin_row:
+                username = admin_username_env or "管理员"
+                email = admin_email if "@" in admin_email else "admin@ywies.local"
+                pwd_hash = generate_password_hash(admin_password)
+                conn.execute(
+                    "INSERT INTO users (email, username, password, is_admin) VALUES (?, ?, ?, 1)",
+                    (email, username, pwd_hash),
+                )
+                conn.commit()
+                print(f"[初始化] 管理员账号已创建：{username} / {email}")
+            else:
+                sets = []
+                params = []
+                if admin_password_env:
+                    sets.append("password=?")
+                    params.append(generate_password_hash(admin_password_env))
+                if admin_email_env and "@" in admin_email:
+                    sets.append("email=?")
+                    params.append(admin_email)
+                if sets:
+                    params.append(admin_row["id"])
+                    conn.execute("UPDATE users SET " + ", ".join(sets) + " WHERE id=?", tuple(params))
+                    conn.commit()
+                    print("[管理员] 已按环境变量同步原有管理员")
+                else:
+                    print("[管理员] 使用现有管理员账号；未显式设置 ADMIN_PASSWORD，不修改密码")
     finally:
         conn.close()
 
