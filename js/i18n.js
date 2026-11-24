@@ -139,7 +139,7 @@
         msgPlaceholder: { zh: '输入私信...', en: 'Type a message...' },
         send: { zh: '发送', en: 'Send' },
 
-        postModalTitle: { zh: '发布新帖子', en: 'New Post' },
+        postModalTitle: { zh: '发布作品', en: 'Publish' },
         postAuthorLabel: { zh: '发布身份', en: 'Posting as' },
         postAuthorTitle: { zh: '以当前登录账号发布', en: 'Posting with your account' },
         postTitleLabel: { zh: '标题', en: 'Title' },
@@ -153,7 +153,7 @@
         postTagsLabel: { zh: '标签', en: 'Tags' },
         postNewTagPlaceholder: { zh: '输入新标签，回车添加', en: 'Type a new tag and press Enter' },
         postNoTags: { zh: '暂无标签，在下方输入框输入新标签', en: 'No tags yet. Add one below.' },
-        postSubmit: { zh: '发布帖子', en: 'Publish' },
+        postSubmit: { zh: '发布', en: 'Publish' },
         postPublishing: { zh: '发布中...', en: 'Publishing...' },
 
         detailClose: { zh: '关闭', en: 'Close' },

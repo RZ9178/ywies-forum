@@ -3,10 +3,8 @@
 // ============================================
 
 const API = '/api/posts';
-const TAGS_API = '/api/tags';
 
 let allPosts = [];
-let allTags = [];
 let currentTab = 'latest';
 let currentBoard = 'all';
 let publishBoard = 'general';
@@ -75,7 +73,6 @@ window.addEventListener('DOMContentLoaded', function () {
 
     // 帖子优先加载；次要请求错开，减少同时抢数据库连接
     fetchPosts();
-    setTimeout(fetchTags, 150);
     setTimeout(function () {
         refreshBellDot();
         refreshMsgDot();
@@ -119,7 +116,7 @@ async function refreshSite() {
     if (!btn || btn.classList.contains('spinning')) return;
     btn.classList.add('spinning');
     try {
-        await Promise.all([fetchPosts(), fetchTags(), fetchConfig(), refreshBellDot(), refreshMsgDot(), syncReads(), syncFollowing()]);
+        await Promise.all([fetchPosts(), fetchConfig(), refreshBellDot(), refreshMsgDot(), syncReads(), syncFollowing()]);
     } catch (e) {}
     setTimeout(function () { btn.classList.remove('spinning'); }, 400);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -331,15 +328,6 @@ function schedulePostsRetry() {
         postsRetryTimer = null;
         fetchPosts();
     }, delay);
-}
-
-async function fetchTags() {
-    try {
-        const res = await Auth.get(TAGS_API);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (Array.isArray(data)) allTags = data;
-    } catch (e) {}
 }
 
 function normalizeTag(tag) {
@@ -1015,26 +1003,19 @@ async function fetchConfig() {
 
 function renderTagPicker() {
     const picker = document.getElementById('tagPicker');
-    let html = '';
-    allTags.forEach(function (t) {
-        const name = t.name;
-        const sel = selectedTags.indexOf(name) !== -1;
-        html += '<span class="tag-option' + (sel ? ' selected' : '') + '" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</span>';
-    });
-    selectedTags.forEach(function (name) {
-        if (!allTags.find(function (t) { return t.name === name; })) {
-            html += '<span class="tag-option selected" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</span>';
-        }
-    });
-    if (!allTags.length && !selectedTags.length) {
-        html = '<span style="color:var(--text-dim);font-size:13px;">' + T('postNoTags') + '</span>';
+    // 不展示历史标签/别人用过的标签，只展示本次发布已经添加的标签。
+    if (!selectedTags.length) {
+        picker.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">' + T('postNoTags') + '</span>';
+        return;
     }
-    picker.innerHTML = html;
+    picker.innerHTML = selectedTags.map(function (name) {
+        return '<span class="tag-option selected" data-tag="' + escapeHtml(name) + '">#' + escapeHtml(name) + '</span>';
+    }).join('');
     picker.querySelectorAll('.tag-option').forEach(function (el) {
         el.addEventListener('click', function () {
             const name = el.getAttribute('data-tag');
             const idx = selectedTags.indexOf(name);
-            if (idx === -1) selectedTags.push(name); else selectedTags.splice(idx, 1);
+            if (idx !== -1) selectedTags.splice(idx, 1);
             renderTagPicker();
         });
     });
@@ -1088,7 +1069,6 @@ async function submitPost() {
         });
         await fetchConfig();
         await fetchPosts();
-        await fetchTags();
     } catch (e) {
         alert(T('publishFailed', { error: e.message }));
     } finally {
