@@ -1419,7 +1419,7 @@ async function performTriple() {
         }));
     }
     if (needCoin) {
-        jobs.push(Auth.post(API + '/' + post.id + '/coin', { on: true, amount: 1 }).then(async function (res) {
+        jobs.push(Auth.post(API + '/' + post.id + '/coin', { on: true, amount: 2 }).then(async function (res) {
             if (!res.ok) {
                 const err = await res.json().catch(function () { return {}; });
                 throw new Error(err.error || T('coinFailed'));
