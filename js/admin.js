@@ -6,10 +6,6 @@
         window.location.replace('login.html');
         return;
     }
-    if (!Auth.isAdmin()) {
-        window.location.replace('index.html');
-        return;
-    }
 
     const PAGE_SIZE = 50;
     const state = {
@@ -685,9 +681,28 @@
         loadAll();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
+    async function boot() {
+        try {
+            // 后台权限以服务端为准，避免本地缓存的 is_admin 过期
+            const res = await Auth.get('/api/me');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.user) {
+                    Auth.user = data.user;
+                    Auth.save(Auth.token, Auth.user);
+                }
+            }
+        } catch (e) {}
+        if (!Auth.isAdmin()) {
+            window.location.replace('index.html');
+            return;
+        }
         init();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
     }
 })();
