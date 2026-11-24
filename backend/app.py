@@ -297,6 +297,12 @@ def login():
     conn = get_db()
     try:
         row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        # 管理员也可以用邮箱登录（例如 admin@ywies.local）
+        if not row and "@" in username:
+            row = conn.execute(
+                "SELECT * FROM users WHERE LOWER(email)=LOWER(?) ORDER BY is_admin DESC, id LIMIT 1",
+                (username,),
+            ).fetchone()
         if not row:
             return jsonify({"error": "昵称或密码不对"}), 401
         if not check_password_hash(row["password"], password):
@@ -1653,7 +1659,58 @@ def admin_stats():
         user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
         post_count = conn.execute("SELECT COUNT(*) AS c FROM posts").fetchone()["c"]
         comment_count = conn.execute("SELECT COUNT(*) AS c FROM comments").fetchone()["c"]
-        return jsonify({"users": user_count, "posts": post_count, "comments": comment_count})
+        admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_admin=1").fetchone()["c"]
+        coins_total = conn.execute("SELECT COALESCE(SUM(coins), 0) AS c FROM users").fetchone()["c"]
+        return jsonify({
+            "users": user_count, "posts": post_count, "comments": comment_count,
+            "admins": admin_count, "coins": coins_total,
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/posts", methods=["GET"])
+@admin_required
+def admin_posts():
+    q = (request.args.get("q") or "").strip()[:100]
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 200))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    where = ""
+    params = []
+    if q:
+        where = ("WHERE (LOWER(p.title) LIKE LOWER(?) OR LOWER(p.content) LIKE LOWER(?) "
+                 "OR LOWER(p.author) LIKE LOWER(?))")
+        like = "%" + q + "%"
+        params = [like, like, like]
+    conn = get_db()
+    try:
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM posts p " + where, tuple(params)
+        ).fetchone()["c"]
+        rows = conn.execute(
+            """SELECT p.id, p.title, p.content, p.author, p.tags, p.likes, p.coins,
+                      p.views, p.image_url, p.images, p.created_at,
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS replies
+               FROM posts p """ + where + " ORDER BY p.id DESC LIMIT ? OFFSET ?",
+            tuple(params + [limit, offset]),
+        ).fetchall()
+        return jsonify({
+            "posts": [{
+                "id": r["id"], "title": r["title"] or "", "content": r["content"] or "",
+                "author": r["author"] or "", "tags": r["tags"] or "",
+                "likes": r["likes"] or 0, "coins": r["coins"] or 0,
+                "views": r["views"] or 0, "replies": r["replies"] or 0,
+                "image_url": r["image_url"] or "", "images": r["images"] or "",
+                "created_at": _fmt_time(r["created_at"]),
+            } for r in rows],
+            "total": total, "limit": limit, "offset": offset,
+        })
     finally:
         conn.close()
 
@@ -1707,12 +1764,105 @@ def admin_audit():
 @app.route("/api/admin/users", methods=["GET"])
 @admin_required
 def admin_users():
+    q = (request.args.get("q") or "").strip()[:100]
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 500))
+    except (TypeError, ValueError):
+        limit = 200
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    where = ""
+    params = []
+    if q:
+        where = ("WHERE (LOWER(u.username) LIKE LOWER(?) OR LOWER(COALESCE(u.display_name,'')) LIKE LOWER(?) "
+                 "OR LOWER(COALESCE(u.email,'')) LIKE LOWER(?))")
+        like = "%" + q + "%"
+        params = [like, like, like]
     conn = get_db()
     try:
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM users u " + where, tuple(params)
+        ).fetchone()["c"]
         rows = conn.execute(
-            "SELECT id, username, email, is_admin, coins, created_at FROM users ORDER BY id"
+            """SELECT u.id, u.username, u.display_name, u.email, u.is_admin, u.coins,
+                      u.avatar, u.created_at,
+                      (SELECT COUNT(*) FROM posts p WHERE p.author=u.username) AS post_count,
+                      (SELECT COUNT(*) FROM comments c WHERE c.author=u.username) AS comment_count
+               FROM users u """ + where + " ORDER BY u.id DESC LIMIT ? OFFSET ?",
+            tuple(params + [limit, offset]),
         ).fetchall()
-        return jsonify([dict(r, created_at=_fmt_time(r["created_at"])) for r in rows])
+        return jsonify({
+            "users": [{
+                "id": r["id"], "username": r["username"],
+                "display_name": r["display_name"] or r["username"],
+                "email": r["email"] or "", "is_admin": r["is_admin"] or 0,
+                "coins": r["coins"] or 0, "avatar": r["avatar"] or "",
+                "post_count": r["post_count"] or 0,
+                "comment_count": r["comment_count"] or 0,
+                "created_at": _fmt_time(r["created_at"]),
+            } for r in rows],
+            "total": total, "limit": limit, "offset": offset,
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/users/<int:uid>/role", methods=["POST"])
+@admin_required
+def admin_set_role(uid):
+    data = request.get_json(silent=True) or {}
+    make_admin = bool(data.get("is_admin"))
+    current = request.current_user
+    if uid == current["id"]:
+        return jsonify({"error": "不能修改自己的管理员权限"}), 400
+    conn = get_db()
+    try:
+        target = conn.execute(
+            "SELECT id, username, is_admin FROM users WHERE id=?", (uid,)
+        ).fetchone()
+        if not target:
+            return jsonify({"error": "用户不存在"}), 404
+        if not make_admin and (target["is_admin"] or 0):
+            admins = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_admin=1").fetchone()["c"]
+            if admins <= 1:
+                return jsonify({"error": "至少要保留一个管理员"}), 400
+        conn.execute("UPDATE users SET is_admin=? WHERE id=?", (1 if make_admin else 0, uid))
+        _log_audit(
+            conn, "set_admin", current["username"], "user", uid, 0,
+            {"username": target["username"], "is_admin": 1 if make_admin else 0},
+        )
+        conn.commit()
+        return jsonify({"ok": True, "is_admin": 1 if make_admin else 0})
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/users/<int:uid>/reset-password", methods=["POST"])
+@admin_required
+def admin_reset_password(uid):
+    current = request.current_user
+    if uid == current["id"]:
+        return jsonify({"error": "不能重置自己的密码，请通过环境变量修改"}), 400
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    password = "".join(secrets.choice(alphabet) for _ in range(10))
+    conn = get_db()
+    try:
+        target = conn.execute("SELECT id, username FROM users WHERE id=?", (uid,)).fetchone()
+        if not target:
+            return jsonify({"error": "用户不存在"}), 404
+        conn.execute(
+            "UPDATE users SET password=?, token='', token_expires=0 WHERE id=?",
+            (generate_password_hash(password), uid),
+        )
+        conn.execute("DELETE FROM sessions WHERE username=?", (target["username"],))
+        _log_audit(
+            conn, "reset_password", current["username"], "user", uid, 0,
+            {"username": target["username"]},
+        )
+        conn.commit()
+        return jsonify({"ok": True, "password": password})
     finally:
         conn.close()
 
