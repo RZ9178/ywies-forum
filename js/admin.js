@@ -26,6 +26,7 @@
         confirmResolve: null,
     };
 
+    const BOARD_NAMES = { general: '灌水', study: '学习', music: '音乐', poll: '投票', share: '分享' };
     const VIEW_TITLES = {
         overview: ['概览', '论坛运营数据与最近动态'],
         posts: ['帖子管理', '查看、搜索和删除帖子'],
@@ -214,6 +215,8 @@
                 return '<div class="admin-item">' +
                     '<div class="admin-item-main">' +
                         '<div class="admin-item-title">' + escapeHtml(p.title || '无标题') +
+                            ' <span class="admin-badge user">' + escapeHtml(BOARD_NAMES[p.board] || '灌水') + '</span>' +
+                            (p.kind === 'poll' ? ' <span class="admin-badge image">投票</span>' : '') +
                             (p.image_url || p.images ? ' <span class="admin-badge image">图片</span>' : '') + '</div>' +
                         '<div class="admin-item-meta">#' + p.id + ' · <b>' + escapeHtml(p.author) + '</b> · ' + formatExact(p.created_at) + '</div>' +
                         '<div class="admin-item-excerpt">' + escapeHtml(truncate(p.content, 180)) + '</div>' +
@@ -399,7 +402,7 @@
             $('adminDetailTitle').textContent = '帖子 #' + p.id;
             $('adminDetailBody').innerHTML =
                 '<div class="admin-preview-title">' + escapeHtml(p.title || '无标题') + '</div>' +
-                '<div class="admin-preview-meta">作者 ' + escapeHtml(p.author) + ' · ' + formatExact(p.created_at) +
+                '<div class="admin-preview-meta">' + escapeHtml(BOARD_NAMES[p.board] || '') + ' · 作者 ' + escapeHtml(p.author) + ' · ' + formatExact(p.created_at) +
                     ' · ' + (p.views || 0) + ' 浏览 · ' + (p.likes || 0) + ' 赞 · ' + (p.coins || 0) + ' 币</div>' +
                 (p.tags ? '<div style="margin-top:8px;">' + tagsHtml(p.tags) + '</div>' : '') +
                 '<div class="admin-preview-content">' + escapeHtml(p.content || '') + '</div>' + imageHtml +

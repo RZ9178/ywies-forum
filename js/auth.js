@@ -16,6 +16,7 @@ const Auth = {
         localStorage.removeItem('ywies_user');
         localStorage.removeItem('ywies_read');
         localStorage.removeItem('ywies_following');
+        localStorage.removeItem('ywies_bookmarked');
     },
     isLoggedIn() { return !!this.token; },
     isAdmin() { return !!(this.user && this.user.is_admin); },

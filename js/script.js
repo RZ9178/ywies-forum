@@ -8,6 +8,8 @@ const TAGS_API = '/api/tags';
 let allPosts = [];
 let allTags = [];
 let currentTab = 'latest';
+let currentBoard = 'all';
+let publishBoard = 'general';
 let currentTag = '';
 let searchQuery = '';
 let currentPost = null;
@@ -45,7 +47,6 @@ function T(key, vars) {
 }
 
 const K_READ = 'ywies_read';
-const K_BOOKMARK = 'ywies_bookmarked';
 const K_FOLLOW = 'ywies_following';
 const K_LIKED = 'ywies_liked';
 const K_COINED = 'ywies_coined';
@@ -63,6 +64,7 @@ window.addEventListener('DOMContentLoaded', function () {
     const hadCache = loadPostsCache();
     if (hadCache) render();
     bindTabs();
+    bindBoards();
     bindSearch();
     bindBell();
     bindDetailModal();
@@ -344,6 +346,19 @@ function normalizeTag(tag) {
     return String(tag == null ? '' : tag).trim().replace(/^#+/, '').trim();
 }
 
+function boardLabel(board) {
+    const map = {
+        general: 'boardGeneral', study: 'boardStudy', music: 'boardMusic',
+        poll: 'boardPoll', share: 'boardShare'
+    };
+    return T(map[board] || 'boardGeneral');
+}
+
+function boardPill(board) {
+    board = board || 'general';
+    return '<span class="board-pill ' + escapeHtml(board) + '">' + escapeHtml(boardLabel(board)) + '</span>';
+}
+
 function getPostTags(post) {
     const seen = [];
     String((post && post.tags) || '').split(',').forEach(function (t) {
@@ -356,12 +371,12 @@ function getPostTags(post) {
 function applyTagFilter(tag) {
     const name = normalizeTag(tag);
     currentTag = '';
-    currentTab = 'all';
+    currentTab = 'latest';
     searchQuery = name ? '#' + name : '';
     const search = document.getElementById('searchInput');
     if (search) search.value = searchQuery;
     document.querySelectorAll('.tab').forEach(function (t) {
-        t.classList.toggle('active', t.getAttribute('data-tab') === 'all');
+        t.classList.toggle('active', t.getAttribute('data-tab') === 'latest');
     });
     if (!document.getElementById('detailModal').hidden) closeDetail();
     render();
@@ -383,7 +398,10 @@ function render() {
                    getPostTags(p).join(' ').toLowerCase().includes(q);
         });
     }
-    if (currentTab === 'latest' || currentTab === 'all') list.sort(function (a, b) { return b.id - a.id; });
+    if (currentBoard !== 'all') {
+        list = list.filter(function (p) { return (p.board || 'general') === currentBoard; });
+    }
+    if (currentTab === 'latest') list.sort(function (a, b) { return b.id - a.id; });
     else if (currentTab === 'hot') list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
     else if (currentTab === 'unread') {
         const read = getRead();
@@ -391,9 +409,6 @@ function render() {
                    .sort(function (a, b) { return b.id - a.id; });
     } else if (currentTab === 'followed') {
         list = list.filter(function (p) { return followingUsers.has(p.author); });
-    } else if (currentTab === 'bookmarked') {
-        const bm = getBookmarks();
-        list = list.filter(function (p) { return bm.indexOf(p.id) !== -1; });
     }
     renderList(list);
 }
@@ -431,6 +446,14 @@ function renderList(list) {
             : '';
 
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        const boardHtml = '<div class="card-board">' + boardPill(p.board) + '</div>';
+        const pollHtml = (p.kind === 'poll' && p.poll) ? ('<div class="poll-preview">' +
+            p.poll.options.map(function (o) {
+                return '<div class="poll-preview-row"><span class="poll-preview-label">' + escapeHtml(o.text) +
+                    '</span><span class="poll-preview-bar"><i style="width:' +
+                    Math.max(0, Math.min(100, o.percent || 0)) + '%"></i></span><span class="poll-preview-count">' +
+                    (o.count || 0) + '</span></div>';
+            }).join('') + '</div>') : '';
         const metaHtml = '<div class="card-meta">' +
                 '<a class="card-author" href="javascript:void(0)" data-author="' + escapeHtml(p.author) + '">' + escapeHtml(p.author || T('anonymous')) + '</a>' +
                 '<span class="card-time">' + formatTime(p) + '</span>' +
@@ -446,23 +469,26 @@ function renderList(list) {
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
         if (cover) {
-            card.className = 'post-card ' + (isRead ? 'is-read' : 'is-unread');
+            card.className = 'post-card ' + (p.kind === 'poll' ? 'card-kind-poll ' : '') + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-cover">' +
                     '<img src="' + escapeHtml(cover) + '" alt="" decoding="async">' +
                 '</div>' +
                 '<div class="card-body">' +
+                    boardHtml +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml +
+                    tagsHtml + pollHtml +
                     metaHtml +
                 '</div>';
         } else {
-            card.className = 'post-card no-cover ' + (isRead ? 'is-read' : 'is-unread');
+            card.className = 'post-card no-cover ' + (p.kind === 'poll' ? 'card-kind-poll ' : '') + (isRead ? 'is-read' : 'is-unread');
             card.innerHTML =
                 '<div class="card-body">' +
+                    boardHtml +
                     '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
                     tagsHtml +
                     (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') +
+                    pollHtml +
                     metaHtml +
                 '</div>';
         }
@@ -558,6 +584,21 @@ function bindTabs() {
         });
     });
 }
+function bindBoards() {
+    const bar = document.getElementById('boardBar');
+    if (!bar) return;
+    bar.querySelectorAll('.board-chip').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            currentBoard = this.getAttribute('data-board') || 'all';
+            bar.querySelectorAll('.board-chip').forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+            });
+            render();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    });
+}
+
 function bindSearch() {
     document.getElementById('searchInput').addEventListener('input', function (e) {
         searchQuery = e.target.value.trim();
@@ -680,6 +721,18 @@ function bindPostModal() {
     });
 
     document.getElementById('submitPostBtn').addEventListener('click', submitPost);
+    document.querySelectorAll('[data-publish-board]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            choosePublishBoard(this.getAttribute('data-publish-board'));
+        });
+    });
+    document.getElementById('publishBack').addEventListener('click', function () {
+        document.getElementById('publishForm').hidden = true;
+        document.getElementById('publishChooser').hidden = false;
+    });
+    document.getElementById('pollAddOption').addEventListener('click', function () {
+        addPollOption('');
+    });
 }
 
 function openPostModal() {
@@ -701,6 +754,9 @@ function openPostModal() {
     setUploadHint('');
     document.getElementById('uploadPlaceholder').style.display = '';
     renderTagPicker();
+    publishBoard = 'general';
+    document.getElementById('publishChooser').hidden = false;
+    document.getElementById('publishForm').hidden = true;
     document.getElementById('postModal').hidden = false;
     document.body.style.overflow = 'hidden';
 }
@@ -708,6 +764,72 @@ function openPostModal() {
 function closePostModal() {
     document.getElementById('postModal').hidden = true;
     document.body.style.overflow = '';
+}
+
+function addPollOption(value) {
+    const box = document.getElementById('pollOptions');
+    const rows = box.querySelectorAll('.poll-option-row');
+    if (rows.length >= 6) { alert(T('pollMaxOptions')); return; }
+    const row = document.createElement('div');
+    row.className = 'poll-option-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 200;
+    input.value = value || '';
+    input.placeholder = T('pollOptionPlaceholder', { n: rows.length + 1 });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'poll-option-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', function () {
+        if (box.querySelectorAll('.poll-option-row').length <= 2) return;
+        row.remove();
+        syncPollOptions();
+    });
+    row.appendChild(input);
+    row.appendChild(remove);
+    box.appendChild(row);
+    syncPollOptions();
+}
+
+function syncPollOptions() {
+    const box = document.getElementById('pollOptions');
+    const rows = box.querySelectorAll('.poll-option-row');
+    rows.forEach(function (row, i) {
+        const input = row.querySelector('input');
+        if (input) input.placeholder = T('pollOptionPlaceholder', { n: i + 1 });
+        const remove = row.querySelector('.poll-option-remove');
+        if (remove) remove.disabled = rows.length <= 2;
+    });
+    document.getElementById('pollAddOption').disabled = rows.length >= 6;
+}
+
+function choosePublishBoard(board) {
+    publishBoard = board || 'general';
+    document.getElementById('publishChooser').hidden = true;
+    document.getElementById('publishForm').hidden = false;
+    document.getElementById('publishBoardLabel').textContent = boardLabel(publishBoard);
+    const isPoll = publishBoard === 'poll';
+    document.getElementById('postTitleLabel').textContent = T(isPoll ? 'pollQuestionLabel' : 'postTitleLabel');
+    document.getElementById('postTitle').placeholder = T(isPoll ? 'pollQuestionPlaceholder' : 'postTitlePlaceholder');
+    document.getElementById('postContentLabel').textContent = T(isPoll ? 'pollDescriptionLabel' : 'postContentLabel');
+    document.getElementById('postContent').placeholder = T(isPoll ? 'pollDescriptionPlaceholder' : 'postContentPlaceholder');
+    document.getElementById('pollFields').hidden = !isPoll;
+    document.getElementById('imageGroup').hidden = isPoll;
+    document.getElementById('tagGroup').hidden = isPoll;
+    const note = document.getElementById('publishBoardNote');
+    let noteText = '';
+    if (publishBoard === 'study' || publishBoard === 'share') noteText = T('publishMarkdownHint');
+    else if (publishBoard === 'music') noteText = T('publishMusicHint');
+    note.textContent = noteText;
+    note.hidden = !noteText;
+    document.getElementById('submitPostBtn').textContent = T('postSubmit');
+    if (isPoll) {
+        const box = document.getElementById('pollOptions');
+        box.innerHTML = '';
+        addPollOption('');
+        addPollOption('');
+    }
 }
 
 async function handleImageFiles(fileList) {
@@ -921,24 +1043,49 @@ function renderTagPicker() {
 async function submitPost() {
     const title = document.getElementById('postTitle').value.trim();
     const content = document.getElementById('postContent').value.trim();
+    const isPoll = publishBoard === 'poll';
     if (!title) { alert(T('enterTitle')); return; }
-    if (!content) { alert(T('enterContent')); return; }
-    if (imageProcessing) { alert(T('uploadPending')); return; }
+    if (!isPoll && !content) { alert(T('enterContent')); return; }
+    if (!isPoll && imageProcessing) { alert(T('uploadPending')); return; }
+
+    let pollOptions = [];
+    if (isPoll) {
+        document.querySelectorAll('#pollOptions .poll-option-row input').forEach(function (input) {
+            const val = input.value.trim();
+            if (val && pollOptions.indexOf(val) === -1) pollOptions.push(val);
+        });
+        if (pollOptions.length < 2) { alert(T('pollMinOptions')); return; }
+        if (pollOptions.length > 6) { alert(T('pollMaxOptions')); return; }
+    }
 
     const btn = document.getElementById('submitPostBtn');
     btn.disabled = true;
     btn.textContent = T('postPublishing');
 
     try {
-        const res = await Auth.post(API, {
-            title: title, content: content,
-            tags: selectedTags.join(','), images: uploadedImages
-        });
+        const body = {
+            title: title,
+            content: content,
+            board: publishBoard,
+            kind: isPoll ? 'poll' : 'post',
+            tags: isPoll ? '' : selectedTags.join(','),
+            images: isPoll ? [] : uploadedImages
+        };
+        if (isPoll) body.poll_options = pollOptions;
+        const res = await Auth.post(API, body);
         if (!res.ok) {
             const err = await res.json();
             throw new Error(err.error || T('publishFailed', { error: '' }));
         }
         closePostModal();
+        currentTab = 'latest';
+        currentBoard = publishBoard;
+        document.querySelectorAll('.tab').forEach(function (t) {
+            t.classList.toggle('active', t.getAttribute('data-tab') === 'latest');
+        });
+        document.querySelectorAll('.board-chip').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-board') === currentBoard);
+        });
         await fetchConfig();
         await fetchPosts();
         await fetchTags();
@@ -1026,10 +1173,31 @@ function bindDetailModal() {
         if (alreadyCoined) return;
         openCoinModal();
     });
-    document.getElementById('footerStar').addEventListener('click', function () {
+    document.getElementById('footerStar').addEventListener('click', async function () {
         if (!currentPost) return;
-        toggleBookmark(currentPost.id);
-        updateFooterButtons();
+        if (!Auth.isLoggedIn()) {
+            alert(T('bookmarkLogin'));
+            window.location.href = 'login.html';
+            return;
+        }
+        const btn = this;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+            const on = !currentPost.bookmarked;
+            const res = await Auth.post('/api/posts/' + currentPost.id + '/bookmark', { on: on });
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || T('bookmarkFailed'));
+            }
+            const data = await res.json();
+            currentPost.bookmarked = !!data.bookmarked;
+            updateFooterButtons();
+        } catch (e) {
+            alert(T('bookmarkFailed') + ' ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
     });
     document.getElementById('replyCancel').addEventListener('click', resetReplyTarget);
     const commentInput = document.getElementById('commentInput');
@@ -1177,6 +1345,10 @@ function closeDetail() {
     currentPost = null;
     allComments = [];
     render();
+    if (profilePage && !profilePage.hidden && (currentProfileTab === 'likes' || currentProfileTab === 'bookmarks')) {
+        profileSavedCache[currentProfileTab] = null;
+        selectProfileTab(currentProfileTab);
+    }
 }
 
 function renderDetail() {
@@ -1191,6 +1363,12 @@ function renderDetail() {
     document.getElementById('detailAuthorName').textContent = p.author || T('anonymous');
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || T('untitled');
+    const detailBoard = document.getElementById('detailBoard');
+    if (detailBoard) {
+        detailBoard.innerHTML = boardPill(p.board);
+        detailBoard.hidden = false;
+    }
+    renderPoll(p);
     const detailTags = document.getElementById('detailTags');
     const tags = getPostTags(p);
     if (detailTags) {
@@ -1212,6 +1390,62 @@ function renderDetail() {
     closeDetailMoreMenu();
     renderComments();
     updateFooterButtons();
+}
+
+function renderPoll(p) {
+    const box = document.getElementById('detailPoll');
+    if (!box) return;
+    if (!p || p.kind !== 'poll' || !p.poll) {
+        box.hidden = true;
+        box.innerHTML = '';
+        return;
+    }
+    const poll = p.poll;
+    const voted = !!poll.my_option_id;
+    box.hidden = false;
+    box.innerHTML = poll.options.map(function (o) {
+        const pct = Math.max(0, Math.min(100, o.percent || 0));
+        return '<button type="button" class="poll-option' + (poll.my_option_id === o.id ? ' voted' : '') +
+            '" data-poll-option="' + o.id + '"' + (voted || poll.closed ? ' disabled' : '') + '>' +
+            '<span class="poll-bar" style="width:' + pct + '%"></span>' +
+            '<span class="poll-label">' + escapeHtml(o.text) + '</span>' +
+            '<span class="poll-count">' + (o.count || 0) + ' · ' + pct + '%</span>' +
+        '</button>';
+    }).join('') +
+    '<div class="poll-meta">' + T('pollTotalVotes', { n: poll.total || 0 }) +
+        (poll.closed ? ' · ' + T('pollClosed') : '') +
+        (voted ? ' · <span class="poll-voted-note">' + T('pollVoted') + '</span>' : '') + '</div>';
+    box.querySelectorAll('[data-poll-option]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            votePoll(Number(this.getAttribute('data-poll-option')));
+        });
+    });
+}
+
+async function votePoll(optionId) {
+    if (!currentPost || !currentPost.poll || !optionId) return;
+    if (!Auth.isLoggedIn()) {
+        alert(T('pollVoteLogin'));
+        window.location.href = 'login.html';
+        return;
+    }
+    const box = document.getElementById('detailPoll');
+    if (box) box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    try {
+        const res = await Auth.post('/api/posts/' + currentPost.id + '/vote', { option_id: optionId });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || T('pollVoteFailed'));
+        }
+        const data = await res.json();
+        currentPost.poll = data.poll;
+        const listItem = allPosts.filter(function (p) { return p.id === currentPost.id; })[0];
+        if (listItem) listItem.poll = data.poll;
+        renderPoll(currentPost);
+    } catch (e) {
+        alert(T('pollVoteFailed') + ' ' + e.message);
+        renderPoll(currentPost);
+    }
 }
 
 async function deleteCurrentPost() {
@@ -1610,6 +1844,8 @@ let currentConnectionsUsername = '';
 let profileEditAvatar = '';
 let profileEditBanner = '';
 let profileEditSaving = false;
+let currentProfileTab = 'works';
+let profileSavedCache = { likes: null, bookmarks: null };
 let connectionsRequestId = 0;
 
 function bindProfileModal() {
@@ -1672,6 +1908,8 @@ async function openProfile(username) {
     const page = document.getElementById('profilePage');
     if (!page) return;
     currentProfileUsername = username;
+    currentProfileTab = 'works';
+    profileSavedCache = { likes: null, bookmarks: null };
     page.hidden = false;
     page.scrollTop = 0;
     document.body.style.overflow = 'hidden';
@@ -1774,17 +2012,100 @@ function renderProfile(data) {
     }
 
     document.getElementById('profileWorksCount').textContent = u.post_count || posts.length;
-    renderProfileWorks(posts);
+    setupProfileTabs(u, posts, isMe);
     document.title = name + ' - ' + T('appName');
 }
 
-function renderProfileWorks(posts) {
+function setupProfileTabs(u, posts, isMe) {
+    const likesTab = document.getElementById('profileLikesTab');
+    const bookmarksTab = document.getElementById('profileBookmarksTab');
+    const likeVisible = isMe || !!u.likes_public;
+    const bookmarkVisible = isMe || !!u.bookmarks_public;
+    likesTab.hidden = !likeVisible;
+    bookmarksTab.hidden = !bookmarkVisible;
+    likesTab.classList.toggle('private', isMe && !u.likes_public);
+    bookmarksTab.classList.toggle('private', isMe && !u.bookmarks_public);
+    document.getElementById('profileLikesCount').textContent = u.liked_count == null ? '—' : u.liked_count;
+    document.getElementById('profileBookmarksCount').textContent = u.bookmarked_count == null ? '—' : u.bookmarked_count;
+    if (currentProfileTab === 'likes' && !likeVisible) currentProfileTab = 'works';
+    if (currentProfileTab === 'bookmarks' && !bookmarkVisible) currentProfileTab = 'works';
+    document.querySelectorAll('#profileTabs .profile-tab').forEach(function (btn) {
+        btn.onclick = function () {
+            const tab = this.getAttribute('data-ptab');
+            if (tab === 'likes' && !likeVisible) return;
+            if (tab === 'bookmarks' && !bookmarkVisible) return;
+            selectProfileTab(tab);
+        };
+    });
+    selectProfileTab(currentProfileTab);
+}
+
+function profileTabHint(tab, u, isMe) {
+    const hint = document.getElementById('profileListHint');
+    if (!hint) return;
+    if (tab === 'likes' && isMe && !u.likes_public) {
+        hint.textContent = T('profilePrivateHint');
+        hint.hidden = false;
+    } else if (tab === 'bookmarks' && isMe && !u.bookmarks_public) {
+        hint.textContent = T('profilePrivateHint');
+        hint.hidden = false;
+    } else {
+        hint.textContent = '';
+        hint.hidden = true;
+    }
+}
+
+function selectProfileTab(tab) {
+    if (!currentProfileData || !currentProfileData.user) return;
+    currentProfileTab = tab || 'works';
+    document.querySelectorAll('#profileTabs .profile-tab').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-ptab') === currentProfileTab);
+    });
+    const u = currentProfileData.user;
+    if (currentProfileTab === 'works') {
+        profileTabHint('works', u, !!u.is_self);
+        renderProfileWorks(currentProfileData.posts || [], 'profileNoWorks', false);
+        return;
+    }
+    profileTabHint(currentProfileTab, u, !!u.is_self);
+    const cached = profileSavedCache[currentProfileTab];
+    if (cached) {
+        renderProfileWorks(cached, currentProfileTab === 'likes' ? 'profileEmptyLikes' : 'profileEmptyBookmarks', true);
+        return;
+    }
+    const grid = document.getElementById('profileWorks');
+    grid.classList.remove('masonry');
+    grid.style.height = '';
+    grid.innerHTML = '<div class="profile-empty">' + T('profileLoading') + '</div>';
+    loadProfileSaved(currentProfileTab);
+}
+
+async function loadProfileSaved(tab) {
+    if (!currentProfileData || !currentProfileData.user) return;
+    const username = currentProfileData.user.username;
+    try {
+        const res = await Auth.get('/api/users/' + encodeURIComponent(username) + '/' + tab);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        profileSavedCache[tab] = data.posts || [];
+        if (currentProfileTab === tab) {
+            renderProfileWorks(profileSavedCache[tab], tab === 'likes' ? 'profileEmptyLikes' : 'profileEmptyBookmarks', true);
+        }
+    } catch (e) {
+        if (currentProfileTab === tab) {
+            profileSavedCache[tab] = [];
+            renderProfileWorks([], tab === 'likes' ? 'profileEmptyLikes' : 'profileEmptyBookmarks', true);
+        }
+    }
+}
+
+function renderProfileWorks(posts, emptyKey, showAuthor) {
     const grid = document.getElementById('profileWorks');
     grid.classList.remove('masonry');
     grid.style.height = '';
     grid.innerHTML = '';
     if (!posts.length) {
-        grid.innerHTML = '<div class="profile-empty">' + T('profileNoWorks') + '</div>';
+        grid.innerHTML = '<div class="profile-empty">' + T(emptyKey || 'profileNoWorks') + '</div>';
         return;
     }
     posts.forEach(function (p) {
@@ -1795,7 +2116,16 @@ function renderProfileWorks(posts) {
                 return '<span class="card-tag-chip">#' + escapeHtml(t) + '</span>';
             }).join('') + '</div>'
             : '';
+        const boardHtml = '<div class="card-board">' + boardPill(p.board) + '</div>';
+        const pollHtml = (p.kind === 'poll' && p.poll) ? ('<div class="poll-preview">' +
+            p.poll.options.map(function (o) {
+                return '<div class="poll-preview-row"><span class="poll-preview-label">' + escapeHtml(o.text) +
+                    '</span><span class="poll-preview-bar"><i style="width:' +
+                    Math.max(0, Math.min(100, o.percent || 0)) + '%"></i></span><span class="poll-preview-count">' +
+                    (o.count || 0) + '</span></div>';
+            }).join('') + '</div>') : '';
         const stats = '<div class="profile-work-stats">' +
+            (showAuthor ? '<span>@' + escapeHtml(p.author || '') + '</span>' : '') +
             '<span><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (p.likes || 0) + '</span>' +
             '<span><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (p.views || 0) + '</span>' +
             '<span><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (p.replies || 0) + '</span>' +
@@ -1803,19 +2133,19 @@ function renderProfileWorks(posts) {
         '</div>';
         const excerpt = (p.content || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         const card = document.createElement('article');
-        card.className = 'post-card profile-work-card';
+        card.className = 'post-card profile-work-card' + (p.kind === 'poll' ? ' card-kind-poll' : '');
         card.setAttribute('data-id', p.id);
         card.tabIndex = 0;
         card.setAttribute('role', 'link');
         if (cover) {
             card.innerHTML =
                 '<div class="card-cover"><img src="' + escapeHtml(cover) + '" alt="" decoding="async"></div>' +
-                '<div class="card-body"><h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml + stats + '</div>';
+                '<div class="card-body">' + boardHtml + '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml + pollHtml + stats + '</div>';
         } else {
             card.innerHTML =
-                '<div class="card-body"><h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
-                    tagsHtml + (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') + stats + '</div>';
+                '<div class="card-body">' + boardHtml + '<h3 class="card-title">' + escapeHtml(p.title || T('untitled')) + '</h3>' +
+                    tagsHtml + (excerpt ? '<p class="card-excerpt">' + escapeHtml(excerpt) + '</p>' : '') + pollHtml + stats + '</div>';
         }
         const img = card.querySelector('.card-cover img');
         if (img) {
@@ -1968,6 +2298,8 @@ function openProfileEdit() {
     profileEditBanner = u.banner || '';
     document.getElementById('editDisplayName').value = u.display_name || u.username;
     document.getElementById('editBio').value = u.bio || '';
+    document.getElementById('editLikesPublic').checked = !!u.likes_public;
+    document.getElementById('editBookmarksPublic').checked = !!u.bookmarks_public;
     document.getElementById('editStatus').textContent = '';
     renderProfileEditMedia();
     document.getElementById('profileEditModal').hidden = false;
@@ -2030,7 +2362,9 @@ async function saveProfileEdit() {
             display_name: displayName,
             bio: bio,
             avatar: profileEditAvatar,
-            banner: profileEditBanner
+            banner: profileEditBanner,
+            likes_public: document.getElementById('editLikesPublic').checked,
+            bookmarks_public: document.getElementById('editBookmarksPublic').checked
         });
         if (!res.ok) {
             const err = await res.json().catch(function () { return {}; });
@@ -2043,6 +2377,8 @@ async function saveProfileEdit() {
         currentProfileData.user.bio = data.user.bio;
         currentProfileData.user.avatar = data.user.avatar;
         currentProfileData.user.banner = data.user.banner;
+        currentProfileData.user.likes_public = !!data.user.likes_public;
+        currentProfileData.user.bookmarks_public = !!data.user.bookmarks_public;
         currentProfileUsername = data.user.username;
         if (Auth.user) {
             Auth.user.username = data.user.username;
@@ -2050,6 +2386,8 @@ async function saveProfileEdit() {
             Auth.user.bio = data.user.bio;
             Auth.user.avatar = data.user.avatar;
             Auth.user.banner = data.user.banner;
+            Auth.user.likes_public = data.user.likes_public;
+            Auth.user.bookmarks_public = data.user.bookmarks_public;
             Auth.save(Auth.token, Auth.user);
         }
         if (oldUsername && oldUsername !== data.user.username) {
@@ -2359,7 +2697,6 @@ function closeImageViewer() {
 
 function updateFooterButtons() {
     if (!currentPost) return;
-    const bm = getBookmarks();
     const liked = currentPost.liked !== undefined
         ? !!currentPost.liked
         : (getLiked().indexOf(currentPost.id) !== -1);
@@ -2368,7 +2705,7 @@ function updateFooterButtons() {
         : (getCoined().indexOf(currentPost.id) !== -1);
     document.getElementById('footerLikeCount').textContent = currentPost.likes || 0;
     document.getElementById('footerCoinCount').textContent = currentPost.coins || 0;
-    document.getElementById('footerStarCount').textContent = bm.indexOf(currentPost.id) !== -1 ? 1 : 0;
+    document.getElementById('footerStarCount').textContent = currentPost.bookmarked ? 1 : 0;
     const likeBtn = document.getElementById('footerLike');
     const coinBtn = document.getElementById('footerCoin');
     const isOwn = !!(Auth.isLoggedIn() && Auth.user && currentPost.author === Auth.user.username);
@@ -2377,7 +2714,7 @@ function updateFooterButtons() {
     coinBtn.disabled = coined || isOwn;
     coinBtn.classList.toggle('coin-own', isOwn);
     coinBtn.title = isOwn ? T('coinOwn') : (coined ? T('coinedTitle') : T('coinTitle'));
-    document.getElementById('footerStar').classList.toggle('active', bm.indexOf(currentPost.id) !== -1);
+    document.getElementById('footerStar').classList.toggle('active', !!currentPost.bookmarked);
 }
 
 // ---------- localStorage ----------
@@ -2391,14 +2728,6 @@ function markRead(id) {
     if (Auth.isLoggedIn()) {
         Auth.post('/api/posts/' + id + '/read').catch(function () {});
     }
-}
-function getBookmarks() { try { return JSON.parse(localStorage.getItem(K_BOOKMARK) || '[]'); } catch (e) { return []; } }
-function toggleBookmark(id) {
-    const bm = getBookmarks();
-    const i = bm.indexOf(id);
-    if (i === -1) bm.push(id); else bm.splice(i, 1);
-    localStorage.setItem(K_BOOKMARK, JSON.stringify(bm));
-    render();
 }
 function getFollowing() { try { return JSON.parse(localStorage.getItem(K_FOLLOW) || '[]'); } catch (e) { return []; } }
 function getLiked() { try { return JSON.parse(localStorage.getItem(K_LIKED) || '[]'); } catch (e) { return []; } }

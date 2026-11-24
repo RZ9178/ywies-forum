@@ -1,6 +1,10 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS poll_votes;
+DROP TABLE IF EXISTS poll_options;
+DROP TABLE IF EXISTS polls;
+DROP TABLE IF EXISTS bookmarks;
 DROP TABLE IF EXISTS follows;
 DROP TABLE IF EXISTS post_reads;
 DROP TABLE IF EXISTS audit_log;
@@ -26,6 +30,8 @@ CREATE TABLE users (
     bio         TEXT DEFAULT '',
     avatar      TEXT DEFAULT '',
     banner      TEXT DEFAULT '',
+    likes_public INTEGER DEFAULT 0,
+    bookmarks_public INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -37,6 +43,9 @@ CREATE TABLE posts (
     tags        TEXT DEFAULT '',
     image_url   TEXT DEFAULT '',
     images      TEXT DEFAULT '',
+    board       TEXT DEFAULT 'general',
+    kind        TEXT DEFAULT 'post',
+    format      TEXT DEFAULT 'plain',
     views       INTEGER NOT NULL DEFAULT 0,
     likes       INTEGER NOT NULL DEFAULT 0,
     coins       INTEGER NOT NULL DEFAULT 0,
@@ -60,6 +69,7 @@ CREATE TABLE notifs (
     username    TEXT NOT NULL,
     title       TEXT NOT NULL DEFAULT '',
     text        TEXT NOT NULL DEFAULT '',
+    post_id     INTEGER DEFAULT 0,
     is_read     INTEGER NOT NULL DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -130,4 +140,36 @@ CREATE TABLE follows (
     following   TEXT NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (follower, following)
+);
+
+CREATE TABLE bookmarks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    username    TEXT NOT NULL,
+    post_id     INTEGER NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (username, post_id)
+);
+
+CREATE TABLE polls (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL UNIQUE,
+    question    TEXT DEFAULT '',
+    closed      INTEGER DEFAULT 0,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE poll_options (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id     INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    position    INTEGER DEFAULT 0
+);
+
+CREATE TABLE poll_votes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id     INTEGER NOT NULL,
+    option_id   INTEGER NOT NULL,
+    username    TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (poll_id, username)
 );

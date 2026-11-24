@@ -82,6 +82,27 @@ detail.html / post.html / js/detail.js / js/post.js    历史遗留页面，首�
 - 标签会显示在标题下方、正文之前（如 `#学习 #压力`），可以点击筛选，也可以直接用标签搜索
 - 首次升级会清零没有账号归属的历史帖子点赞/投币计数
 
+## 板块、发布选择器和投票
+
+- 首页板块：全部 / 灌水 / 学习 / 音乐 / 投票 / 分享
+- 点「发布」先选择作品类型，再进入对应表单
+- 第一版：
+  - 灌水、学习、分享、音乐都用普通文本表单；学习和分享的 Markdown、音乐外链放到下一版
+  - 投票可创建 2–6 个选项，一人一票，显示票数和百分比
+- 数据：`posts.board`（general/study/music/poll/share）、`posts.kind`（post/poll）、`posts.format`
+- 投票表：`polls` / `poll_options` / `poll_votes`
+- 投票以后可以放进学习/分享板块，`board` 和 `kind` 是分开的
+
+## 收藏、点赞与个人主页
+
+- 首页不再有「收藏」和「全部」Tab，保留：最新 / 热门 / 未看 / 关注
+- 收藏改为服务端 `bookmarks` 表，跨设备同步
+- 帖子详情的星标按钮可收藏/取消收藏
+- 个人主页新增「作品 / 点赞 / 收藏」切换
+- 用户可以分别设置是否公开自己的点赞列表和收藏列表；默认私密
+- 公开后其他用户可在个人主页看到；私密时只有自己可见
+- 迁移：`users.likes_public`、`users.bookmarks_public`
+
 ## 私信
 
 - `messages` 表：sender / receiver / content / is_read / created_at

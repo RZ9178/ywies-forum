@@ -158,7 +158,8 @@ def _get_current_user():
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT u.id, u.email, u.username, u.is_admin, u.coins, u.display_name, u.bio, u.avatar, u.banner FROM sessions s "
+            "SELECT u.id, u.email, u.username, u.is_admin, u.coins, u.display_name, u.bio, u.avatar, u.banner, "
+            "u.likes_public, u.bookmarks_public FROM sessions s "
             "JOIN users u ON u.username = s.username "
             "WHERE s.token=? AND s.expires>?",
             (token, time.time()),
@@ -166,7 +167,8 @@ def _get_current_user():
         if not row:
             # 兼容旧 token（users.token 单列），迁移后会自动复制进 sessions
             row = conn.execute(
-                "SELECT id, email, username, is_admin, coins, display_name, bio, avatar, banner FROM users WHERE token=? AND token_expires>?",
+                "SELECT id, email, username, is_admin, coins, display_name, bio, avatar, banner, "
+                "likes_public, bookmarks_public FROM users WHERE token=? AND token_expires>?",
                 (token, time.time()),
             ).fetchone()
         return dict(row) if row else None
@@ -286,7 +288,8 @@ def register():
         conn.close()
     return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username,
                                              "is_admin": 0, "coins": 10, "display_name": username,
-                                             "bio": "", "avatar": "", "banner": ""}})
+                                             "bio": "", "avatar": "", "banner": "",
+                                             "likes_public": 0, "bookmarks_public": 0}})
 
 
 @app.route("/api/login", methods=["POST"])
@@ -326,7 +329,9 @@ def login():
                      "is_admin": row["is_admin"], "coins": coins,
                      "display_name": row["display_name"] or row["username"],
                      "bio": row["bio"] or "", "avatar": row["avatar"] or "",
-                     "banner": row["banner"] or ""}
+                     "banner": row["banner"] or "",
+                     "likes_public": row["likes_public"] or 0,
+                     "bookmarks_public": row["bookmarks_public"] or 0}
         })
     finally:
         conn.close()
@@ -543,6 +548,9 @@ def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=
         "content": row["content"],
         "author": row["author"],
         "tags": row["tags"] or "",
+        "board": (row["board"] if "board" in keys else "general") or "general",
+        "kind": (row["kind"] if "kind" in keys else "post") or "post",
+        "format": (row["format"] if "format" in keys else "plain") or "plain",
         "image": cover,
         "images": images,
         "has_image": has_image,
@@ -573,17 +581,132 @@ def logout():
     return jsonify({"ok": True})
 
 
+BOARDS = {
+    "general": "灌水",
+    "study": "学习",
+    "music": "音乐",
+    "poll": "投票",
+    "share": "分享",
+}
+
+
+def _normalize_board(value):
+    value = (value or "").strip()
+    return value if value in BOARDS else "general"
+
+
+def _poll_payload(conn, post_id, viewer):
+    poll = conn.execute(
+        "SELECT id, question, closed FROM polls WHERE post_id=?", (post_id,)
+    ).fetchone()
+    if not poll:
+        return None
+    rows = conn.execute(
+        """SELECT o.id, o.text, o.position,
+                  (SELECT COUNT(*) FROM poll_votes v WHERE v.option_id=o.id) AS count
+           FROM poll_options o WHERE o.poll_id=? ORDER BY o.position, o.id""",
+        (poll["id"],),
+    ).fetchall()
+    total = conn.execute(
+        "SELECT COUNT(*) AS c FROM poll_votes WHERE poll_id=?", (poll["id"],)
+    ).fetchone()["c"]
+    my_option = 0
+    if viewer:
+        mine = conn.execute(
+            "SELECT option_id FROM poll_votes WHERE poll_id=? AND username=?",
+            (poll["id"], viewer),
+        ).fetchone()
+        my_option = mine["option_id"] if mine else 0
+    return {
+        "id": poll["id"],
+        "question": poll["question"] or "",
+        "closed": bool(poll["closed"]),
+        "total": total,
+        "my_option_id": my_option,
+        "options": [{
+            "id": r["id"], "text": r["text"] or "",
+            "count": r["count"] or 0,
+            "percent": round((r["count"] or 0) * 100 / total, 1) if total else 0,
+        } for r in rows],
+    }
+
+
+def _bookmarked_ids(conn, username, post_ids):
+    if not username or not post_ids:
+        return set()
+    placeholders = ",".join("?" for _ in post_ids)
+    rows = conn.execute(
+        "SELECT post_id FROM bookmarks WHERE username=? AND post_id IN (" + placeholders + ")",
+        tuple([username] + list(post_ids)),
+    ).fetchall()
+    return {r["post_id"] for r in rows}
+
+
 @app.route("/api/posts", methods=["GET"])
 def list_posts():
     viewer = _get_current_user()
     viewer_admin = bool(viewer and viewer.get("is_admin"))
+    viewer_name = viewer["username"] if viewer else ""
+    board = (request.args.get("board") or "").strip()
+    where = ""
+    params = []
+    if board and board != "all":
+        board = _normalize_board(board)
+        where = "WHERE p.board=?"
+        params = [board]
     conn = get_db()
     try:
         rows = conn.execute(
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p ORDER BY p.id DESC"""
+               FROM posts p """ + where + " ORDER BY p.id DESC",
+            tuple(params),
         ).fetchall()
-        return jsonify([_row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin) for r in rows])
+        bookmarked = _bookmarked_ids(conn, viewer_name, [r["id"] for r in rows])
+        out = []
+        for r in rows:
+            item = _row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin)
+            item["bookmarked"] = r["id"] in bookmarked
+            if item.get("kind") == "poll":
+                item["poll"] = _poll_payload(conn, r["id"], viewer_name)
+            out.append(item)
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route("/api/posts/<int:post_id>/vote", methods=["POST"])
+@login_required
+def vote_poll(post_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        option_id = int(data.get("option_id") or 0)
+    except (TypeError, ValueError):
+        option_id = 0
+    me = request.current_user["username"]
+    conn = get_db()
+    try:
+        poll = conn.execute(
+            "SELECT id, closed FROM polls WHERE post_id=?", (post_id,)
+        ).fetchone()
+        if not poll:
+            return jsonify({"error": "投票不存在"}), 404
+        if poll["closed"]:
+            return jsonify({"error": "投票已结束"}), 400
+        option = conn.execute(
+            "SELECT id FROM poll_options WHERE id=? AND poll_id=?",
+            (option_id, poll["id"]),
+        ).fetchone()
+        if not option:
+            return jsonify({"error": "选项不存在"}), 400
+        cur = conn.execute(
+            "INSERT INTO poll_votes (poll_id, option_id, username) VALUES (?, ?, ?) "
+            "ON CONFLICT (poll_id, username) DO NOTHING",
+            (poll["id"], option_id, me),
+        )
+        if cur.rowcount == 0:
+            return jsonify({"error": "你已经投过票了"}), 400
+        conn.commit()
+        return jsonify({"ok": True, "poll": _poll_payload(conn, post_id, me)})
     finally:
         conn.close()
 
@@ -595,6 +718,10 @@ def create_post():
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
     author = request.current_user["username"]
+    board = _normalize_board(data.get("board") or "general")
+    kind = (data.get("kind") or ("poll" if board == "poll" else "post")).strip()
+    if kind not in ("post", "poll"):
+        kind = "post"
     raw_tags = (data.get("tags") or "").strip()
     tags_list = []
     for t in raw_tags.split(","):
@@ -604,8 +731,22 @@ def create_post():
     tags = ",".join(tags_list)
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
-    if not content:
+    if kind != "poll" and not content:
         return jsonify({"error": "内容不能为空"}), 400
+
+    poll_options = []
+    if kind == "poll":
+        raw_options = data.get("poll_options")
+        if not isinstance(raw_options, list):
+            return jsonify({"error": "投票至少需要两个选项"}), 400
+        for opt in raw_options:
+            text = (opt or "").strip()[:200] if isinstance(opt, str) else ""
+            if text and text not in poll_options:
+                poll_options.append(text)
+        if len(poll_options) < 2:
+            return jsonify({"error": "投票至少需要两个选项"}), 400
+        if len(poll_options) > 6:
+            return jsonify({"error": "投票最多六个选项"}), 400
 
     # 新前端传 images（Storage 公开 URL 数组）；老前端只传 image（单张 base64）
     images = []
@@ -640,13 +781,28 @@ def create_post():
     conn = get_db()
     try:
         conn.execute(
-            "INSERT INTO posts (title, content, author, tags, image_url, images) VALUES (?, ?, ?, ?, ?, ?)",
-            (title, content, author, tags, cover, images_json),
+            "INSERT INTO posts (title, content, author, tags, image_url, images, board, kind, format) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (title, content, author, tags, cover, images_json, board, kind, "plain"),
         )
-        conn.commit()
         new_id = conn.max_id("posts")
+        if kind == "poll":
+            conn.execute(
+                "INSERT INTO polls (post_id, question) VALUES (?, ?)", (new_id, title)
+            )
+            poll_id = conn.max_id("polls")
+            for pos, opt in enumerate(poll_options):
+                conn.execute(
+                    "INSERT INTO poll_options (poll_id, text, position) VALUES (?, ?, ?)",
+                    (poll_id, opt, pos),
+                )
+        conn.commit()
         row = conn.execute("SELECT * FROM posts WHERE id=?", (new_id,)).fetchone()
-        return jsonify(_row_to_dict(row, 0, viewer_admin=bool(request.current_user.get("is_admin")))), 201
+        item = _row_to_dict(row, 0, viewer_admin=bool(request.current_user.get("is_admin")))
+        item["bookmarked"] = False
+        if kind == "poll":
+            item["poll"] = _poll_payload(conn, new_id, author)
+        return jsonify(item), 201
     finally:
         conn.close()
 
@@ -679,8 +835,15 @@ def get_post(post_id):
                 "SELECT 1 AS x FROM post_coins WHERE post_id=? AND username=?",
                 (post_id, user["username"]),
             ).fetchone() is not None
-        return jsonify(_row_to_dict(row, row["reply_count"], liked=liked, coined=coined,
-                                    viewer_admin=bool(user and user.get("is_admin"))))
+        item = _row_to_dict(row, row["reply_count"], liked=liked, coined=coined,
+                            viewer_admin=bool(user and user.get("is_admin")))
+        item["bookmarked"] = bool(user and conn.execute(
+            "SELECT 1 AS x FROM bookmarks WHERE username=? AND post_id=?",
+            (user["username"], post_id),
+        ).fetchone())
+        if item.get("kind") == "poll":
+            item["poll"] = _poll_payload(conn, post_id, user["username"] if user else "")
+        return jsonify(item)
     finally:
         conn.close()
 
@@ -693,8 +856,8 @@ def user_profile(username):
     conn = get_db()
     try:
         user = conn.execute(
-            "SELECT id, username, display_name, bio, avatar, banner, is_admin, created_at "
-            "FROM users WHERE username=?",
+            "SELECT id, username, display_name, bio, avatar, banner, is_admin, "
+            "likes_public, bookmarks_public, created_at FROM users WHERE username=?",
             (username,),
         ).fetchone()
         if not user:
@@ -720,11 +883,28 @@ def user_profile(username):
                 "SELECT 1 AS x FROM follows WHERE follower=? AND following=?",
                 (viewer["username"], username),
             ).fetchone() is not None
+        is_self = bool(viewer and viewer["username"] == username)
+        can_view_likes = is_self or bool(user["likes_public"])
+        can_view_bookmarks = is_self or bool(user["bookmarks_public"])
+        liked_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM post_likes l JOIN posts p ON p.id=l.post_id WHERE l.username=?",
+            (username,),
+        ).fetchone()["c"] if can_view_likes else None
+        bookmarked_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM bookmarks b JOIN posts p ON p.id=b.post_id WHERE b.username=?",
+            (username,),
+        ).fetchone()["c"] if can_view_bookmarks else None
         rows = conn.execute(
             """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
                FROM posts p WHERE p.author=? ORDER BY p.id DESC LIMIT 500""",
             (username,),
         ).fetchall()
+        post_items = []
+        for r in rows:
+            item = _row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin)
+            if item.get("kind") == "poll":
+                item["poll"] = _poll_payload(conn, r["id"], viewer["username"] if viewer else "")
+            post_items.append(item)
         level = 4 if (user["is_admin"] or 0) else _level_from_post_count(total)
         return jsonify({
             "user": {
@@ -742,13 +922,73 @@ def user_profile(username):
                 "following_count": following_count,
                 "followers_count": followers_count,
                 "is_following": is_following,
-                "is_self": bool(viewer and viewer["username"] == username),
+                "is_self": is_self,
+                "likes_public": bool(user["likes_public"]),
+                "bookmarks_public": bool(user["bookmarks_public"]),
+                "liked_count": liked_count,
+                "bookmarked_count": bookmarked_count,
                 **_time_fields(user["created_at"], viewer_admin),
             },
-            "posts": [_row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin) for r in rows],
+            "posts": post_items,
         })
     finally:
         conn.close()
+
+
+def _profile_saved_posts(username, typ):
+    viewer = _get_current_user()
+    viewer_name = viewer["username"] if viewer else ""
+    viewer_admin = bool(viewer and viewer.get("is_admin"))
+    conn = get_db()
+    try:
+        target = conn.execute(
+            "SELECT username, likes_public, bookmarks_public FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not target:
+            return jsonify({"error": "用户不存在"}), 404
+        is_self = viewer_name == username
+        public = bool(target["likes_public"] if typ == "likes" else target["bookmarks_public"])
+        if not is_self and not public:
+            return jsonify({"error": "该列表未公开"}), 403
+        if typ == "likes":
+            join = "JOIN post_likes x ON x.post_id=p.id"
+            cond = "x.username=?"
+            order = "x.created_at DESC, p.id DESC"
+        else:
+            join = "JOIN bookmarks x ON x.post_id=p.id"
+            cond = "x.username=?"
+            order = "x.created_at DESC, p.id DESC"
+        rows = conn.execute(
+            "SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count "
+            "FROM posts p " + join + " WHERE " + cond + " ORDER BY " + order + " LIMIT 200",
+            (username,),
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM posts p " + join + " WHERE " + cond,
+            (username,),
+        ).fetchone()["c"]
+        bookmarked = _bookmarked_ids(conn, viewer_name, [r["id"] for r in rows])
+        out = []
+        for r in rows:
+            item = _row_to_dict(r, r["reply_count"], viewer_admin=viewer_admin)
+            item["bookmarked"] = r["id"] in bookmarked
+            if item.get("kind") == "poll":
+                item["poll"] = _poll_payload(conn, r["id"], viewer_name)
+            out.append(item)
+        return jsonify({"posts": out, "total": total, "is_self": is_self, "public": public})
+    finally:
+        conn.close()
+
+
+@app.route("/api/users/<username>/likes", methods=["GET"])
+def user_liked_posts(username):
+    return _profile_saved_posts(username, "likes")
+
+
+@app.route("/api/users/<username>/bookmarks", methods=["GET"])
+def user_bookmarked_posts(username):
+    return _profile_saved_posts(username, "bookmarks")
 
 
 @app.route("/api/users/<username>/follow", methods=["POST"])
@@ -873,6 +1113,8 @@ def _rename_user_everywhere(conn, old_name, new_name):
     conn.execute("UPDATE post_likes SET username=? WHERE username=?", (new_name, old_name))
     conn.execute("UPDATE post_coins SET username=? WHERE username=?", (new_name, old_name))
     conn.execute("UPDATE post_reads SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE bookmarks SET username=? WHERE username=?", (new_name, old_name))
+    conn.execute("UPDATE poll_votes SET username=? WHERE username=?", (new_name, old_name))
     conn.execute("UPDATE messages SET sender=? WHERE sender=?", (new_name, old_name))
     conn.execute("UPDATE messages SET receiver=? WHERE receiver=?", (new_name, old_name))
     conn.execute("UPDATE notifs SET username=? WHERE username=?", (new_name, old_name))
@@ -941,6 +1183,8 @@ def update_my_profile():
     bio = (data.get("bio") or "").strip()[:200]
     avatar = (data.get("avatar") or "").strip()
     banner = (data.get("banner") or "").strip()
+    likes_public = 1 if data.get("likes_public") else 0
+    bookmarks_public = 1 if data.get("bookmarks_public") else 0
     for value, label in ((avatar, "头像"), (banner, "背景")):
         if value and (len(value) > 2048 or not (value.startswith("https://") or value.startswith("http://"))):
             return jsonify({"error": f"{label}地址不合法"}), 400
@@ -961,8 +1205,8 @@ def update_my_profile():
                 (new_name, request.current_user["id"]),
             )
         conn.execute(
-            "UPDATE users SET bio=?, avatar=?, banner=? WHERE id=?",
-            (bio, avatar, banner, request.current_user["id"]),
+            "UPDATE users SET bio=?, avatar=?, banner=?, likes_public=?, bookmarks_public=? WHERE id=?",
+            (bio, avatar, banner, likes_public, bookmarks_public, request.current_user["id"]),
         )
         conn.commit()
         return jsonify({"ok": True, "user": {
@@ -972,6 +1216,8 @@ def update_my_profile():
             "bio": bio,
             "avatar": avatar,
             "banner": banner,
+            "likes_public": likes_public,
+            "bookmarks_public": bookmarks_public,
             "is_admin": request.current_user.get("is_admin") or 0,
         }})
     except Exception:
@@ -1052,6 +1298,16 @@ def delete_post(post_id):
         conn.execute("DELETE FROM post_likes WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM post_coins WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM post_reads WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM bookmarks WHERE post_id=?", (post_id,))
+        conn.execute(
+            "DELETE FROM poll_votes WHERE poll_id IN (SELECT id FROM polls WHERE post_id=?)",
+            (post_id,),
+        )
+        conn.execute(
+            "DELETE FROM poll_options WHERE poll_id IN (SELECT id FROM polls WHERE post_id=?)",
+            (post_id,),
+        )
+        conn.execute("DELETE FROM polls WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM comments WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM posts WHERE id=?", (post_id,))
         conn.commit()
@@ -1104,6 +1360,32 @@ def toggle_like(post_id):
             "SELECT 1 AS x FROM post_likes WHERE post_id=? AND username=?", (post_id, me)
         ).fetchone() is not None
         return jsonify({"likes": row["likes"], "liked": liked})
+    finally:
+        conn.close()
+
+
+@app.route("/api/posts/<int:post_id>/bookmark", methods=["POST"])
+@login_required
+def toggle_bookmark(post_id):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    me = request.current_user["username"]
+    conn = get_db()
+    try:
+        if not conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone():
+            return jsonify({"error": "帖子不存在"}), 404
+        if on:
+            conn.execute(
+                "INSERT INTO bookmarks (username, post_id) VALUES (?, ?) "
+                "ON CONFLICT (username, post_id) DO NOTHING",
+                (me, post_id),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM bookmarks WHERE username=? AND post_id=?", (me, post_id)
+            )
+        conn.commit()
+        return jsonify({"ok": True, "bookmarked": on})
     finally:
         conn.close()
 
@@ -1695,7 +1977,7 @@ def admin_posts():
         ).fetchone()["c"]
         rows = conn.execute(
             """SELECT p.id, p.title, p.content, p.author, p.tags, p.likes, p.coins,
-                      p.views, p.image_url, p.images, p.created_at,
+                      p.views, p.image_url, p.images, p.board, p.kind, p.created_at,
                       (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS replies
                FROM posts p """ + where + " ORDER BY p.id DESC LIMIT ? OFFSET ?",
             tuple(params + [limit, offset]),
@@ -1704,6 +1986,7 @@ def admin_posts():
             "posts": [{
                 "id": r["id"], "title": r["title"] or "", "content": r["content"] or "",
                 "author": r["author"] or "", "tags": r["tags"] or "",
+                "board": r["board"] or "general", "kind": r["kind"] or "post",
                 "likes": r["likes"] or 0, "coins": r["coins"] or 0,
                 "views": r["views"] or 0, "replies": r["replies"] or 0,
                 "image_url": r["image_url"] or "", "images": r["images"] or "",
@@ -1893,6 +2176,25 @@ def admin_delete_user(uid):
         )
         conn.execute("DELETE FROM comments WHERE author=?", (username,))
         conn.execute("DELETE FROM comments WHERE post_id IN (SELECT id FROM posts WHERE author=?)", (username,))
+        conn.execute(
+            "DELETE FROM poll_votes WHERE username=? OR poll_id IN "
+            "(SELECT id FROM polls WHERE post_id IN (SELECT id FROM posts WHERE author=?))",
+            (username, username),
+        )
+        conn.execute(
+            "DELETE FROM poll_options WHERE poll_id IN "
+            "(SELECT id FROM polls WHERE post_id IN (SELECT id FROM posts WHERE author=?))",
+            (username,),
+        )
+        conn.execute(
+            "DELETE FROM polls WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
+            (username,),
+        )
+        conn.execute(
+            "DELETE FROM bookmarks WHERE username=? OR post_id IN "
+            "(SELECT id FROM posts WHERE author=?)",
+            (username, username),
+        )
         conn.execute("DELETE FROM posts WHERE author=?", (username,))
         conn.execute("DELETE FROM notifs WHERE username=?", (username,))
         conn.execute("DELETE FROM messages WHERE sender=? OR receiver=?", (username, username))
@@ -1988,6 +2290,8 @@ def _migrate():
                     bio TEXT DEFAULT '',
                     avatar TEXT DEFAULT '',
                     banner TEXT DEFAULT '',
+                    likes_public INTEGER DEFAULT 0,
+                    bookmarks_public INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -2000,6 +2304,9 @@ def _migrate():
                     image_url TEXT DEFAULT '',
                     images TEXT DEFAULT '',
                     tags TEXT DEFAULT '',
+                    board TEXT DEFAULT 'general',
+                    kind TEXT DEFAULT 'post',
+                    format TEXT DEFAULT 'plain',
                     likes INTEGER DEFAULT 0,
                     coins INTEGER DEFAULT 0,
                     views INTEGER DEFAULT 0,
@@ -2105,6 +2412,42 @@ def _migrate():
                     UNIQUE (follower, following)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS bookmarks (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    post_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (username, post_id)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS polls (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL UNIQUE,
+                    question TEXT DEFAULT '',
+                    closed INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS poll_options (
+                    id SERIAL PRIMARY KEY,
+                    poll_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    position INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS poll_votes (
+                    id SERIAL PRIMARY KEY,
+                    poll_id INTEGER NOT NULL,
+                    option_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (poll_id, username)
+                )
+            """)
             conn.commit()
         else:
             # SQLite 分支：已存在的 school_posts.db 不会有 notifs 表，这里幂等补建
@@ -2195,6 +2538,42 @@ def _migrate():
                     UNIQUE (follower, following)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS bookmarks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    post_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (username, post_id)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS polls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL UNIQUE,
+                    question TEXT DEFAULT '',
+                    closed INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS poll_options (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    poll_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    position INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS poll_votes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    poll_id INTEGER NOT NULL,
+                    option_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (poll_id, username)
+                )
+            """)
             conn.commit()
 
         if not has_likes_table:
@@ -2226,7 +2605,8 @@ def _migrate():
             ("comments", ["likes", "parent_id", "reply_to"]),
             ("notifs", ["post_id"]),
             ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
-                       "display_name", "bio", "avatar", "banner"]),
+                       "display_name", "bio", "avatar", "banner", "likes_public", "bookmarks_public"]),
+            ("posts", ["board", "kind", "format"]),
         ]:
             if is_pg:
                 existing = [r["column_name"] for r in conn.execute(
@@ -2239,6 +2619,12 @@ def _migrate():
                 if col not in existing:
                     if table == "users" and col == "coins":
                         coltype = "INTEGER DEFAULT 10"
+                    elif table == "posts" and col == "board":
+                        coltype = "TEXT DEFAULT 'general'"
+                    elif table == "posts" and col == "kind":
+                        coltype = "TEXT DEFAULT 'post'"
+                    elif table == "posts" and col == "format":
+                        coltype = "TEXT DEFAULT 'plain'"
                     else:
                         coltype = "TEXT DEFAULT ''" if col in text_cols else "INTEGER DEFAULT 0"
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
@@ -2349,6 +2735,10 @@ def _migrate():
             "CREATE INDEX IF NOT EXISTS idx_users_token ON users(token)",
             "CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id)",
             "CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver, is_read)",
+            "CREATE INDEX IF NOT EXISTS idx_posts_board ON posts(board)",
+            "CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(username)",
+            "CREATE INDEX IF NOT EXISTS idx_poll_votes_poll ON poll_votes(poll_id)",
+            "CREATE INDEX IF NOT EXISTS idx_poll_options_poll ON poll_options(poll_id)",
         ):
             try:
                 conn.execute(ddl)
