@@ -2661,7 +2661,7 @@ def _migrate():
 
         # 自动补列（兼容 SQLite 和 PostgreSQL）：老库缺哪列就补哪列
         text_cols = {"tags", "email", "token", "image_url", "images", "reply_to", "last_daily_coin",
-                     "display_name", "bio", "avatar", "banner"}
+                     "display_name", "bio", "avatar", "banner", "music_artist", "music_url"}
         col_sets = {}
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
@@ -2792,6 +2792,20 @@ def _migrate():
             conn.commit()
         except Exception as e:
             print(f"[迁移] 投币数量迁移跳过：{e}")
+
+        # 修复旧版本把 music_artist/music_url 误建成 INTEGER 的情况
+        if is_pg:
+            for col in ("music_artist", "music_url"):
+                info = conn.execute(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema='public' AND table_name='posts' AND column_name=%s",
+                    (col,),
+                ).fetchone()
+                if info and info["data_type"] != "text":
+                    conn.execute(
+                        "ALTER TABLE posts ALTER COLUMN " + col + " TYPE TEXT USING " + col + "::text"
+                    )
+            conn.commit()
 
         # 常用查询加索引（幂等，SQLite / PostgreSQL 都支持）
         for ddl in (
