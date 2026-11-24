@@ -579,6 +579,7 @@ def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=
         "title": row["title"],
         "content": row["content"],
         "author": row["author"],
+        "author_avatar": (row["author_avatar"] if "author_avatar" in keys else "") or "",
         "tags": row["tags"] or "",
         "board": (row["board"] if "board" in keys else "general") or "general",
         "kind": (row["kind"] if "kind" in keys else "post") or "post",
@@ -692,8 +693,9 @@ def list_posts():
     conn = get_db()
     try:
         rows = conn.execute(
-            """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p """ + where + " ORDER BY p.id DESC",
+            """SELECT p.*, u.avatar AS author_avatar,
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
+               FROM posts p LEFT JOIN users u ON u.username=p.author """ + where + " ORDER BY p.id DESC",
             tuple(params),
         ).fetchall()
         bookmarked = _bookmarked_ids(conn, viewer_name, [r["id"] for r in rows])
@@ -879,8 +881,9 @@ def get_post(post_id):
         conn.execute("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id=?", (post_id,))
         conn.commit()
         row = conn.execute(
-            """SELECT p.*, (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p WHERE p.id=?""",
+            """SELECT p.*, u.avatar AS author_avatar,
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
+               FROM posts p LEFT JOIN users u ON u.username=p.author WHERE p.id=?""",
             (post_id,),
         ).fetchone()
         if not row:
@@ -1571,7 +1574,11 @@ def list_comments(post_id):
     viewer_admin = bool(user and user.get("is_admin"))
     conn = get_db()
     try:
-        rows = conn.execute("SELECT * FROM comments WHERE post_id=? ORDER BY id ASC", (post_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT c.*, u.avatar AS author_avatar FROM comments c "
+            "LEFT JOIN users u ON u.username=c.author WHERE c.post_id=? ORDER BY c.id ASC",
+            (post_id,),
+        ).fetchall()
         liked_ids = set()
         if user:
             liked_rows = conn.execute(
@@ -1584,6 +1591,7 @@ def list_comments(post_id):
         for r in rows:
             item = dict(r)
             item.update(_time_fields(item["created_at"], viewer_admin))
+            item["author_avatar"] = r["author_avatar"] or ""
             item["parent_id"] = item.get("parent_id") or 0
             item["reply_to"] = item.get("reply_to") or ""
             item["liked"] = r["id"] in liked_ids
@@ -1671,6 +1679,7 @@ def create_comment(post_id):
         return jsonify({
             "id": new_id, "post_id": post_id, "author": author,
             "content": content, "likes": 0, "created_at": "刚刚",
+            "author_avatar": request.current_user.get("avatar") or "",
             "parent_id": parent_id, "reply_to": reply_to,
         }), 201
     finally:

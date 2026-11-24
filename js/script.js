@@ -11,6 +11,9 @@ let publishBoard = 'general';
 let mdPreviewActive = false;
 let mdPreviewTimer = null;
 let mdPreviewRequest = 0;
+let tripleSuppressClickUntil = 0;
+let triplePressState = null;
+let tripleToastTimer = null;
 let currentTag = '';
 let searchQuery = '';
 let currentPost = null;
@@ -96,6 +99,8 @@ window.addEventListener('DOMContentLoaded', function () {
             if (!allPosts.length || postsLoadFailed) fetchPosts();
             syncReads();
             syncFollowing();
+            refreshBellDot();
+            refreshMsgDot();
         }
     });
     window.addEventListener('pageshow', function (e) {
@@ -354,6 +359,14 @@ function boardLabel(board) {
 function boardPill(board) {
     board = board || 'general';
     return '<span class="board-pill ' + escapeHtml(board) + '">' + escapeHtml(boardLabel(board)) + '</span>';
+}
+
+function avatarMarkup(url, name, className) {
+    const initial = String(name || '?').trim().slice(0, 1).toUpperCase() || '?';
+    if (url) {
+        return '<span class="' + className + '"><img src="' + escapeHtml(url) + '" alt=""></span>';
+    }
+    return '<span class="' + className + '"><span class="avatar-initial">' + escapeHtml(initial) + '</span></span>';
 }
 
 function getPostTags(post) {
@@ -625,7 +638,7 @@ function bindBell() {
         try {
             await Auth.post('/api/notifs/read', {});
         } catch (e) {}
-        document.getElementById('bellDot').hidden = true;
+        updateUnreadBadge(document.getElementById('bellDot'), 0);
     });
     document.getElementById('notifClose').addEventListener('click', function () {
         document.getElementById('notifModal').hidden = true;
@@ -679,19 +692,31 @@ async function renderNotifs() {
         });
     });
 }
+function updateUnreadBadge(dot, count) {
+    if (!dot) return;
+    count = Math.max(0, Number(count) || 0);
+    if (!count) {
+        dot.hidden = true;
+        dot.textContent = '';
+        return;
+    }
+    dot.textContent = count > 99 ? '99+' : String(count);
+    dot.hidden = false;
+}
+
 async function refreshBellDot() {
     const dot = document.getElementById('bellDot');
     if (!Auth.isLoggedIn()) {
-        dot.hidden = true;
+        updateUnreadBadge(dot, 0);
         return;
     }
     try {
         const res = await Auth.get('/api/notifs');
-        if (!res.ok) { dot.hidden = true; return; }
+        if (!res.ok) { updateUnreadBadge(dot, 0); return; }
         const data = await res.json();
-        dot.hidden = !(data.unread > 0);
+        updateUnreadBadge(dot, data.unread || 0);
     } catch (e) {
-        dot.hidden = true;
+        updateUnreadBadge(dot, 0);
     }
 }
 
@@ -1275,6 +1300,157 @@ async function submitPost() {
     }
 }
 
+function showTripleToast(message, isError) {
+    const el = document.getElementById('tripleToast');
+    if (!el) return;
+    el.textContent = message;
+    el.className = 'triple-toast' + (isError ? ' error' : ' success');
+    el.hidden = false;
+    clearTimeout(tripleToastTimer);
+    tripleToastTimer = setTimeout(function () { el.hidden = true; }, 2800);
+}
+
+function cancelTriplePress() {
+    if (triplePressState && triplePressState.cancel) triplePressState.cancel();
+}
+
+function bindTripleLike() {
+    const btn = document.getElementById('footerLike');
+    const ring = document.getElementById('likeRing');
+    if (!btn || !ring) return;
+    const circle = ring.querySelector('circle');
+    const DURATION = 800;
+    const CIRC = 106.81;
+    let holding = false;
+    let raf = null;
+    let startTime = 0;
+    let startX = 0;
+    let startY = 0;
+
+    function reset() {
+        holding = false;
+        if (raf) { cancelAnimationFrame(raf); raf = null; }
+        ring.classList.remove('active');
+        if (circle) circle.style.strokeDashoffset = String(CIRC);
+    }
+
+    function cancel() {
+        reset();
+    }
+
+    triplePressState = { cancel: cancel };
+
+    function loop(now) {
+        if (!holding) return;
+        const progress = Math.min(1, (now - startTime) / DURATION);
+        if (circle) circle.style.strokeDashoffset = String(CIRC * (1 - progress));
+        if (progress >= 1) {
+            holding = false;
+            raf = null;
+            tripleSuppressClickUntil = Date.now() + 1100;
+            ring.classList.remove('active');
+            setTimeout(reset, 320);
+            performTriple();
+            return;
+        }
+        raf = requestAnimationFrame(loop);
+    }
+
+    function start(e) {
+        if (!currentPost || !Auth.isLoggedIn()) return;
+        if (e.button !== undefined && e.button !== 0) return;
+        if (holding) return;
+        holding = true;
+        startTime = performance.now();
+        startX = e.clientX || 0;
+        startY = e.clientY || 0;
+        if (circle) circle.style.strokeDashoffset = String(CIRC);
+        ring.classList.add('active');
+        raf = requestAnimationFrame(loop);
+    }
+
+    btn.addEventListener('pointerdown', start);
+    btn.addEventListener('pointerup', function () { if (holding) cancel(); });
+    btn.addEventListener('pointercancel', cancel);
+    btn.addEventListener('pointerleave', function () { if (holding) cancel(); });
+    btn.addEventListener('pointermove', function (e) {
+        if (!holding) return;
+        const dx = (e.clientX || 0) - startX;
+        const dy = (e.clientY || 0) - startY;
+        if (Math.sqrt(dx * dx + dy * dy) > 18) cancel();
+    });
+    btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+}
+
+async function performTriple() {
+    if (!currentPost || !Auth.isLoggedIn()) return;
+    const post = currentPost;
+    const own = !!(Auth.user && post.author === Auth.user.username);
+    const needLike = !post.liked;
+    const needBookmark = !post.bookmarked;
+    const needCoin = !own && !post.coined;
+    const jobs = [];
+    if (needLike) {
+        jobs.push(Auth.post(API + '/' + post.id + '/like', { on: true }).then(async function (res) {
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || T('likeFailed'));
+            }
+            const data = await res.json();
+            post.likes = data.likes;
+            post.liked = (typeof data.liked === 'boolean') ? data.liked : true;
+            const inList = allPosts.find(function (x) { return x.id === post.id; });
+            if (inList) { inList.likes = post.likes; inList.liked = post.liked; }
+            const liked = getLiked();
+            if (liked.indexOf(post.id) === -1) liked.push(post.id);
+            localStorage.setItem(K_LIKED, JSON.stringify(liked));
+        }));
+    }
+    if (needBookmark) {
+        jobs.push(Auth.post(API + '/' + post.id + '/bookmark', { on: true }).then(async function (res) {
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || T('bookmarkFailed'));
+            }
+            const data = await res.json();
+            post.bookmarked = !!data.bookmarked;
+            const inList = allPosts.find(function (x) { return x.id === post.id; });
+            if (inList) inList.bookmarked = post.bookmarked;
+        }));
+    }
+    if (needCoin) {
+        jobs.push(Auth.post(API + '/' + post.id + '/coin', { on: true, amount: 1 }).then(async function (res) {
+            if (!res.ok) {
+                const err = await res.json().catch(function () { return {}; });
+                throw new Error(err.error || T('coinFailed'));
+            }
+            const data = await res.json();
+            post.coins = data.coins;
+            post.coined = true;
+            post.coin_amount = data.amount;
+            if (Auth.user) {
+                Auth.user.coins = data.balance;
+                Auth.save(Auth.token, Auth.user);
+            }
+            updateCoinBalance();
+            const inList = allPosts.find(function (x) { return x.id === post.id; });
+            if (inList) { inList.coins = post.coins; inList.coined = true; }
+        }));
+    }
+    if (!jobs.length) {
+        showTripleToast(T('tripleAlready'));
+        return;
+    }
+    const results = await Promise.allSettled(jobs);
+    const failed = results.filter(function (r) { return r.status === 'rejected'; });
+    updateFooterButtons();
+    if (failed.length) {
+        showTripleToast(failed[0].reason && failed[0].reason.message ? failed[0].reason.message : T('triplePartial'), true);
+    } else {
+        showTripleToast(own ? T('tripleOwnDone') : T('tripleDone'));
+    }
+}
+
 // ---------- 详情弹窗 ----------
 function bindDetailModal() {
     document.getElementById('detailClose').addEventListener('click', closeDetail);
@@ -1311,6 +1487,7 @@ function bindDetailModal() {
     });
     document.getElementById('footerLike').addEventListener('click', async function () {
         if (!currentPost) return;
+        if (Date.now() < tripleSuppressClickUntil) return;
         const btn = this;
         if (btn.disabled) return;
         if (!Auth.isLoggedIn()) {
@@ -1347,6 +1524,8 @@ function bindDetailModal() {
             btn.disabled = false;
         }
     });
+    bindTripleLike();
+
     document.getElementById('footerCoin').addEventListener('click', function () {
         if (!currentPost || this.disabled) return;
         if (!Auth.isLoggedIn()) {
@@ -1521,6 +1700,7 @@ function closeDetailMoreMenu() {
 }
 
 function closeDetail() {
+    cancelTriplePress();
     hideMentionBox();
     closeImageViewer();
     closeDetailMoreMenu();
@@ -1549,6 +1729,8 @@ function renderDetail() {
     const detailGrid = document.querySelector('.detail-grid');
     if (detailGrid) detailGrid.classList.toggle('no-image', !detailImages.length);
     document.getElementById('detailAuthorName').textContent = p.author || T('anonymous');
+    const detailAvatar = document.getElementById('detailAvatar');
+    if (detailAvatar) detailAvatar.innerHTML = avatarMarkup(p.author_avatar, p.author, 'avatar-inner');
     document.getElementById('detailLikes').textContent = '♥ ' + (p.likes || 0);
     document.getElementById('detailTitle').textContent = p.title || T('untitled');
     const detailBoard = document.getElementById('detailBoard');
@@ -1713,7 +1895,7 @@ function commentHtml(c, opts) {
     const liked = c.liked !== undefined ? !!c.liked : (getCommentLiked().indexOf(c.id) !== -1);
     return '<div class="comment-item' + (isReply ? ' comment-reply' : '') + '" data-cid="' + c.id + '">' +
         '<div class="comment-head">' +
-            '<div class="comment-avatar' + (isReply ? ' small' : '') + '"></div>' +
+            avatarMarkup(c.author_avatar, c.author, 'comment-avatar' + (isReply ? ' small' : '')) +
             '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
             (isAuthor ? '<span class="comment-author-tag">' + T('op') + '</span>' : '') +
             (isReply && c.reply_to ? '<span class="comment-reply-to">' + escapeHtml(T('replyTo', { name: c.reply_to })) + '</span>' : '') +
@@ -2652,22 +2834,21 @@ function bindMessages() {
     });
 }
 
-function updateMsgDot(show) {
-    const dot = document.getElementById('msgDot');
-    if (dot) dot.hidden = !show;
+function updateMsgDot(count) {
+    updateUnreadBadge(document.getElementById('msgDot'), count);
 }
 
 async function refreshMsgDot() {
     const dot = document.getElementById('msgDot');
     if (!dot) return;
-    if (!Auth.isLoggedIn()) { dot.hidden = true; return; }
+    if (!Auth.isLoggedIn()) { updateUnreadBadge(dot, 0); return; }
     try {
         const res = await Auth.get('/api/messages');
-        if (!res.ok) { dot.hidden = true; return; }
+        if (!res.ok) { updateUnreadBadge(dot, 0); return; }
         const data = await res.json();
-        dot.hidden = !(data.unread > 0);
+        updateUnreadBadge(dot, data.unread || 0);
     } catch (e) {
-        dot.hidden = true;
+        updateUnreadBadge(dot, 0);
     }
 }
 
@@ -2694,7 +2875,7 @@ async function openMessageInbox() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         renderInbox(data);
-        updateMsgDot((data.unread || 0) > 0);
+        updateMsgDot(data.unread || 0);
     } catch (e) {
         body.innerHTML = '<div class="message-empty">' + T('msgFailed') + '</div>';
     }
