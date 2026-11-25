@@ -2429,7 +2429,17 @@ def home():
 
 @app.route("/<path:path>")
 def frontend_files(path):
-    return send_from_directory(FRONTEND_DIR, path)
+    # 只允许前端静态资源；避免 /backend/app.py、.git、README 等被直接下载
+    allowed_root = {
+        "index.html", "login.html", "register.html", "admin.html",
+        "detail.html", "post.html", "style.css", "admin.css",
+        "mascot.png", "school-badge.png",
+    }
+    if path in allowed_root:
+        return send_from_directory(FRONTEND_DIR, path)
+    if path.startswith("js/") and path.count("/") == 1 and path.endswith(".js"):
+        return send_from_directory(FRONTEND_DIR, path)
+    return jsonify({"error": "不存在"}), 404
 
 
 def _migrate():
