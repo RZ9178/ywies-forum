@@ -14,6 +14,9 @@ let mdPreviewRequest = 0;
 let tripleSuppressClickUntil = 0;
 let triplePressState = null;
 let tripleToastTimer = null;
+let detailReturnScrollY = null;
+let scrollRestoreTarget = null;
+let scrollRestoreDeadline = 0;
 let currentTag = '';
 let searchQuery = '';
 let currentPost = null;
@@ -1759,7 +1762,35 @@ async function giveCoin(amount) {
     }
 }
 
+function startScrollRestore(y) {
+    scrollRestoreTarget = Math.max(0, Number(y) || 0);
+    scrollRestoreDeadline = performance.now() + 5000;
+    tryRestoreScrollAfterClose();
+    requestAnimationFrame(tryRestoreScrollAfterClose);
+    setTimeout(tryRestoreScrollAfterClose, 80);
+    setTimeout(tryRestoreScrollAfterClose, 260);
+    setTimeout(tryRestoreScrollAfterClose, 700);
+    setTimeout(tryRestoreScrollAfterClose, 1500);
+    setTimeout(tryRestoreScrollAfterClose, 3000);
+}
+
+function tryRestoreScrollAfterClose() {
+    if (scrollRestoreTarget === null) return;
+    if (performance.now() > scrollRestoreDeadline) {
+        scrollRestoreTarget = null;
+        return;
+    }
+    const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const target = Math.min(scrollRestoreTarget, maxY);
+    window.scrollTo(0, target);
+    if (maxY >= scrollRestoreTarget && Math.abs(window.scrollY - scrollRestoreTarget) <= 2) {
+        scrollRestoreTarget = null;
+    }
+}
+
 async function openDetail(postId) {
+    const profileOpen = document.getElementById('profilePage') && !document.getElementById('profilePage').hidden;
+    if (!profileOpen) detailReturnScrollY = window.scrollY;
     try {
         const res = await Auth.get(API + '/' + postId);
         currentPost = await res.json();
@@ -1785,6 +1816,8 @@ function closeDetailMoreMenu() {
 }
 
 function closeDetail() {
+    const returnScrollY = detailReturnScrollY;
+    detailReturnScrollY = null;
     cancelTriplePress();
     hideMentionBox();
     closeImageViewer();
@@ -1798,9 +1831,13 @@ function closeDetail() {
     currentPost = null;
     allComments = [];
     render();
-    if (profilePage && !profilePage.hidden && (currentProfileTab === 'likes' || currentProfileTab === 'bookmarks')) {
-        profileSavedCache[currentProfileTab] = null;
-        selectProfileTab(currentProfileTab);
+    if (profilePage && !profilePage.hidden) {
+        if (currentProfileTab === 'likes' || currentProfileTab === 'bookmarks') {
+            profileSavedCache[currentProfileTab] = null;
+            selectProfileTab(currentProfileTab);
+        }
+    } else if (returnScrollY !== null) {
+        startScrollRestore(returnScrollY);
     }
 }
 
