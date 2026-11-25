@@ -1,6 +1,8 @@
 -- schema.sql
 -- CCA 校园发帖平台：建表语句
 
+DROP TABLE IF EXISTS post_pins;
+DROP TABLE IF EXISTS post_views;
 DROP TABLE IF EXISTS poll_votes;
 DROP TABLE IF EXISTS poll_options;
 DROP TABLE IF EXISTS polls;
@@ -174,4 +176,19 @@ CREATE TABLE poll_votes (
     username    TEXT NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (poll_id, username)
+);
+
+CREATE TABLE post_views (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL,
+    viewer_key  TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (post_id, viewer_key)
+);
+
+CREATE TABLE post_pins (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     INTEGER NOT NULL UNIQUE,
+    pinned_by   TEXT DEFAULT '',
+    pinned_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

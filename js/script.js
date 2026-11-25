@@ -394,6 +394,36 @@ function applyTagFilter(tag) {
 }
 
 // ---------- 列表渲染 ----------
+function hotScore(post) {
+    return (Number(post.coins) || 0) * 0.35 +
+        (Number(post.likes) || 0) * 0.30 +
+        (Number(post.bookmark_count) || 0) * 0.25 +
+        (Number(post.views) || 0) * 0.10;
+}
+
+function hotRank(list) {
+    const pins = list.filter(function (p) { return p.is_pinned; })
+        .sort(function (a, b) {
+            return (Number(b.pin_order) || 0) - (Number(a.pin_order) || 0) || b.id - a.id;
+        });
+    const rest = list.filter(function (p) { return !p.is_pinned; });
+    let latestComment = null;
+    rest.forEach(function (p) {
+        if (!p.last_comment_at) return;
+        if (!latestComment || p.last_comment_at > latestComment.last_comment_at ||
+            (p.last_comment_at === latestComment.last_comment_at && p.id > latestComment.id)) {
+            latestComment = p;
+        }
+    });
+    const others = rest.filter(function (p) { return p !== latestComment; });
+    others.sort(function (a, b) {
+        const diff = hotScore(b) - hotScore(a);
+        if (Math.abs(diff) > 0.000001) return diff;
+        return b.id - a.id;
+    });
+    return pins.concat(latestComment ? [latestComment] : [], others);
+}
+
 function render() {
     let list = allPosts.slice();
     if (currentTag) {
@@ -411,14 +441,22 @@ function render() {
     if (currentBoard !== 'all') {
         list = list.filter(function (p) { return (p.board || 'general') === currentBoard; });
     }
-    if (currentTab === 'latest') list.sort(function (a, b) { return b.id - a.id; });
-    else if (currentTab === 'hot') list.sort(function (a, b) { return (b.views || 0) - (a.views || 0); });
-    else if (currentTab === 'unread') {
+    const pinSort = function (a, b) {
+        return (Number(b.pin_order) || 0) - (Number(a.pin_order) || 0) || b.id - a.id;
+    };
+    if (currentTab === 'latest') {
+        list.sort(function (a, b) { return b.id - a.id; });
+        const pins = list.filter(function (p) { return p.is_pinned; }).sort(pinSort);
+        list = pins.concat(list.filter(function (p) { return !p.is_pinned; }));
+    } else if (currentTab === 'hot') {
+        list = hotRank(list);
+    } else if (currentTab === 'unread') {
         const read = getRead();
         list = list.filter(function (p) { return read.indexOf(p.id) === -1; })
                    .sort(function (a, b) { return b.id - a.id; });
     } else if (currentTab === 'followed') {
-        list = list.filter(function (p) { return followingUsers.has(p.author); });
+        list = list.filter(function (p) { return followingUsers.has(p.author); })
+                   .sort(function (a, b) { return b.id - a.id; });
     }
     renderList(list);
 }
@@ -1422,9 +1460,16 @@ async function performTriple() {
                 throw new Error(err.error || T('bookmarkFailed'));
             }
             const data = await res.json();
+            const wasBookmarked = !!post.bookmarked;
             post.bookmarked = !!data.bookmarked;
+            if (post.bookmarked !== wasBookmarked) {
+                post.bookmark_count = Math.max(0, (Number(post.bookmark_count) || 0) + (post.bookmarked ? 1 : -1));
+            }
             const inList = allPosts.find(function (x) { return x.id === post.id; });
-            if (inList) inList.bookmarked = post.bookmarked;
+            if (inList) {
+                inList.bookmarked = post.bookmarked;
+                inList.bookmark_count = post.bookmark_count;
+            }
         }));
     }
     if (needCoin) {
@@ -1585,7 +1630,16 @@ function bindDetailModal() {
                 throw new Error(err.error || T('bookmarkFailed'));
             }
             const data = await res.json();
+            const wasBookmarked = !!currentPost.bookmarked;
             currentPost.bookmarked = !!data.bookmarked;
+            if (currentPost.bookmarked !== wasBookmarked) {
+                currentPost.bookmark_count = Math.max(0, (Number(currentPost.bookmark_count) || 0) + (currentPost.bookmarked ? 1 : -1));
+            }
+            const inList = allPosts.find(function (x) { return x.id === currentPost.id; });
+            if (inList) {
+                inList.bookmarked = currentPost.bookmarked;
+                inList.bookmark_count = currentPost.bookmark_count;
+            }
             updateFooterButtons();
             bounceFooterIcon('footerStar');
         } catch (e) {
@@ -1709,6 +1763,8 @@ async function openDetail(postId) {
     try {
         const res = await Auth.get(API + '/' + postId);
         currentPost = await res.json();
+        const inList = allPosts.find(function (x) { return x.id === currentPost.id; });
+        if (inList) Object.assign(inList, currentPost);
         markRead(postId);
     } catch (e) { return; }
     try {
@@ -2219,6 +2275,15 @@ async function submitComment() {
         resetReplyTarget();
         if (rootToExpand) expandedReplyThreads[rootToExpand] = true;
         await reloadComments();
+        const now = new Date();
+        const stamp = now.toISOString().slice(0, 19).replace('T', ' ');
+        currentPost.replies = (Number(currentPost.replies) || 0) + 1;
+        currentPost.last_comment_at = stamp;
+        const inList = allPosts.find(function (x) { return x.id === currentPost.id; });
+        if (inList) {
+            inList.replies = currentPost.replies;
+            inList.last_comment_at = stamp;
+        }
         const list = document.getElementById('commentsList');
         if (list) list.scrollTop = commentSort === 'latest' ? 0 : list.scrollHeight;
     } catch (e) {

@@ -596,6 +596,10 @@ def _row_to_dict(row, reply_count=None, liked=False, coined=False, viewer_admin=
         "liked": bool(liked),
         "coined": bool(coined),
         "replies": reply_count if reply_count is not None else 0,
+        "bookmark_count": (row["bookmark_count"] if "bookmark_count" in keys else 0) or 0,
+        "last_comment_at": _fmt_time(row["last_comment_at"]) if ("last_comment_at" in keys and row["last_comment_at"]) else "",
+        "is_pinned": bool(row["pin_id"]) if "pin_id" in keys else False,
+        "pin_order": (row["pin_id"] if "pin_id" in keys else 0) or 0,
         **_time_fields(row["created_at"], viewer_admin),
     }
 
@@ -694,8 +698,13 @@ def list_posts():
     try:
         rows = conn.execute(
             """SELECT p.*, u.avatar AS author_avatar,
-                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p LEFT JOIN users u ON u.username=p.author """ + where + " ORDER BY p.id DESC",
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count,
+                      (SELECT COUNT(*) FROM bookmarks b WHERE b.post_id=p.id) AS bookmark_count,
+                      (SELECT MAX(c.created_at) FROM comments c WHERE c.post_id=p.id) AS last_comment_at,
+                      pin.id AS pin_id, pin.pinned_at AS pinned_at
+               FROM posts p
+               LEFT JOIN users u ON u.username=p.author
+               LEFT JOIN post_pins pin ON pin.post_id=p.id """ + where + " ORDER BY p.id DESC",
             tuple(params),
         ).fetchall()
         bookmarked = _bookmarked_ids(conn, viewer_name, [r["id"] for r in rows])
@@ -878,12 +887,33 @@ def get_post(post_id):
         exists = conn.execute("SELECT id FROM posts WHERE id=?", (post_id,)).fetchone()
         if not exists:
             return jsonify({"error": "帖子不存在"}), 404
-        conn.execute("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id=?", (post_id,))
+        # 浏览量只统计“第一次看”的人：登录用户按账号，游客按浏览器 cookie
+        new_visitor = None
+        if user:
+            viewer_key = "u:" + user["username"]
+        else:
+            visitor = request.cookies.get("ywies_vid") or ""
+            if not visitor or len(visitor) > 80:
+                visitor = secrets.token_urlsafe(18)
+                new_visitor = visitor
+            viewer_key = "a:" + visitor
+        cur = conn.execute(
+            "INSERT INTO post_views (post_id, viewer_key) VALUES (?, ?) "
+            "ON CONFLICT (post_id, viewer_key) DO NOTHING",
+            (post_id, viewer_key),
+        )
+        if cur.rowcount > 0:
+            conn.execute("UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id=?", (post_id,))
         conn.commit()
         row = conn.execute(
             """SELECT p.*, u.avatar AS author_avatar,
-                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count
-               FROM posts p LEFT JOIN users u ON u.username=p.author WHERE p.id=?""",
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS reply_count,
+                      (SELECT COUNT(*) FROM bookmarks b WHERE b.post_id=p.id) AS bookmark_count,
+                      (SELECT MAX(c.created_at) FROM comments c WHERE c.post_id=p.id) AS last_comment_at,
+                      pin.id AS pin_id, pin.pinned_at AS pinned_at
+               FROM posts p
+               LEFT JOIN users u ON u.username=p.author
+               LEFT JOIN post_pins pin ON pin.post_id=p.id WHERE p.id=?""",
             (post_id,),
         ).fetchone()
         if not row:
@@ -907,7 +937,13 @@ def get_post(post_id):
         ).fetchone())
         if item.get("kind") == "poll":
             item["poll"] = _poll_payload(conn, post_id, user["username"] if user else "")
-        return jsonify(item)
+        resp = jsonify(item)
+        if new_visitor:
+            resp.set_cookie(
+                "ywies_vid", new_visitor, max_age=31536000,
+                httponly=True, samesite="Lax", secure=request.is_secure,
+            )
+        return resp
     finally:
         conn.close()
 
@@ -1362,6 +1398,8 @@ def delete_post(post_id):
         conn.execute("DELETE FROM post_likes WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM post_coins WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM post_reads WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM post_views WHERE post_id=?", (post_id,))
+        conn.execute("DELETE FROM post_pins WHERE post_id=?", (post_id,))
         conn.execute("DELETE FROM bookmarks WHERE post_id=?", (post_id,))
         conn.execute(
             "DELETE FROM poll_votes WHERE poll_id IN (SELECT id FROM polls WHERE post_id=?)",
@@ -2048,8 +2086,9 @@ def admin_posts():
         rows = conn.execute(
             """SELECT p.id, p.title, p.content, p.author, p.tags, p.likes, p.coins,
                       p.views, p.image_url, p.images, p.board, p.kind, p.created_at,
-                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS replies
-               FROM posts p """ + where + " ORDER BY p.id DESC LIMIT ? OFFSET ?",
+                      (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id) AS replies,
+                      pin.id AS pin_id, pin.pinned_at AS pinned_at
+               FROM posts p LEFT JOIN post_pins pin ON pin.post_id=p.id """ + where + " ORDER BY p.id DESC LIMIT ? OFFSET ?",
             tuple(params + [limit, offset]),
         ).fetchall()
         return jsonify({
@@ -2060,6 +2099,7 @@ def admin_posts():
                 "likes": r["likes"] or 0, "coins": r["coins"] or 0,
                 "views": r["views"] or 0, "replies": r["replies"] or 0,
                 "image_url": r["image_url"] or "", "images": r["images"] or "",
+                "is_pinned": bool(r["pin_id"]), "pin_order": r["pin_id"] or 0,
                 "created_at": _fmt_time(r["created_at"]),
             } for r in rows],
             "total": total, "limit": limit, "offset": offset,
@@ -2110,6 +2150,65 @@ def admin_audit():
             } for r in deletions],
             "generated_at": _fmt_time(datetime.now(timezone.utc)),
         })
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/pins", methods=["GET"])
+@admin_required
+def admin_pins():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT pin.id AS pin_id, pin.pinned_by, pin.pinned_at,
+                      p.id, p.title, p.author, p.created_at
+               FROM post_pins pin JOIN posts p ON p.id=pin.post_id
+               ORDER BY pin.id DESC"""
+        ).fetchall()
+        return jsonify({"pins": [{
+            "pin_id": r["pin_id"], "post_id": r["id"], "title": r["title"] or "",
+            "author": r["author"] or "", "pinned_by": r["pinned_by"] or "",
+            "pinned_at": _fmt_time(r["pinned_at"]),
+            "created_at": _fmt_time(r["created_at"]),
+        } for r in rows]})
+    finally:
+        conn.close()
+
+
+@app.route("/api/admin/posts/<int:post_id>/pin", methods=["POST"])
+@admin_required
+def admin_pin_post(post_id):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    conn = get_db()
+    try:
+        post = conn.execute("SELECT id, title FROM posts WHERE id=?", (post_id,)).fetchone()
+        if not post:
+            return jsonify({"error": "帖子不存在"}), 404
+        existing = conn.execute(
+            "SELECT id FROM post_pins WHERE post_id=?", (post_id,)
+        ).fetchone()
+        if on:
+            if existing:
+                count = conn.execute("SELECT COUNT(*) AS c FROM post_pins").fetchone()["c"]
+                return jsonify({"ok": True, "pinned": True, "count": count})
+            count = conn.execute("SELECT COUNT(*) AS c FROM post_pins").fetchone()["c"]
+            if count >= 3:
+                return jsonify({"error": "最多只能置顶 3 个帖子"}), 400
+            conn.execute(
+                "INSERT INTO post_pins (post_id, pinned_by) VALUES (?, ?)",
+                (post_id, request.current_user["username"]),
+            )
+            _log_audit(conn, "pin_post", request.current_user["username"], "post", post_id, post_id,
+                       {"title": post["title"] or ""})
+        else:
+            if existing:
+                conn.execute("DELETE FROM post_pins WHERE post_id=?", (post_id,))
+                _log_audit(conn, "unpin_post", request.current_user["username"], "post", post_id, post_id,
+                           {"title": post["title"] or ""})
+        conn.commit()
+        count = conn.execute("SELECT COUNT(*) AS c FROM post_pins").fetchone()["c"]
+        return jsonify({"ok": True, "pinned": on, "count": count})
     finally:
         conn.close()
 
@@ -2262,6 +2361,15 @@ def admin_delete_user(uid):
         )
         conn.execute(
             "DELETE FROM bookmarks WHERE username=? OR post_id IN "
+            "(SELECT id FROM posts WHERE author=?)",
+            (username, username),
+        )
+        conn.execute(
+            "DELETE FROM post_views WHERE post_id IN (SELECT id FROM posts WHERE author=?)",
+            (username,),
+        )
+        conn.execute(
+            "DELETE FROM post_pins WHERE pinned_by=? OR post_id IN "
             "(SELECT id FROM posts WHERE author=?)",
             (username, username),
         )
@@ -2476,6 +2584,23 @@ def _migrate():
                 )
             """)
             conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_views (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL,
+                    viewer_key TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, viewer_key)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_pins (
+                    id SERIAL PRIMARY KEY,
+                    post_id INTEGER NOT NULL UNIQUE,
+                    pinned_by TEXT DEFAULT '',
+                    pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS follows (
                     id SERIAL PRIMARY KEY,
                     follower TEXT NOT NULL,
@@ -2599,6 +2724,23 @@ def _migrate():
                     username TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (post_id, username)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_views (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL,
+                    viewer_key TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (post_id, viewer_key)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS post_pins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_id INTEGER NOT NULL UNIQUE,
+                    pinned_by TEXT DEFAULT '',
+                    pinned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             conn.execute("""
@@ -2825,6 +2967,8 @@ def _migrate():
             "CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(username)",
             "CREATE INDEX IF NOT EXISTS idx_poll_votes_poll ON poll_votes(poll_id)",
             "CREATE INDEX IF NOT EXISTS idx_poll_options_poll ON poll_options(poll_id)",
+            "CREATE INDEX IF NOT EXISTS idx_post_views_post ON post_views(post_id)",
+            "CREATE INDEX IF NOT EXISTS idx_post_pins_post ON post_pins(post_id)",
         ):
             try:
                 conn.execute(ddl)

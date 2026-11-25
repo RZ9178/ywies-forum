@@ -12,6 +12,7 @@
         view: 'overview',
         stats: { users: 0, posts: 0, comments: 0, admins: 0, coins: 0 },
         posts: [],
+        pins: [],
         postTotal: 0,
         postPage: 0,
         postQuery: '',
@@ -207,6 +208,7 @@
     function renderPosts() {
         const list = $('adminPostList');
         const posts = filteredPosts();
+        const pinnedIds = new Set((state.pins || []).map(function (p) { return p.post_id; }));
         $('adminPostCount').textContent = posts.length + (state.postTotal > posts.length ? ' / ' + state.postTotal : '') + ' 条';
         if (!posts.length) {
             list.innerHTML = '<div class="admin-empty">没有符合条件的帖子</div>';
@@ -230,6 +232,9 @@
                     '</div>' +
                     '<div class="admin-actions">' +
                         '<button type="button" class="admin-btn sm" data-action="view-post" data-id="' + p.id + '">查看</button>' +
+                        '<button type="button" class="admin-btn sm" data-action="pin-post" data-id="' + p.id + '"' +
+                            (!pinnedIds.has(p.id) && (state.pins || []).length >= 3 ? ' disabled' : '') + '>' +
+                            (pinnedIds.has(p.id) ? '取消置顶' : '置顶') + '</button>' +
                         '<button type="button" class="admin-btn sm danger" data-action="delete-post" data-id="' + p.id + '">删除</button>' +
                     '</div>' +
                 '</div>';
@@ -306,7 +311,7 @@
             }).join('') : '<div class="admin-empty">暂无帖子</div>';
         } else {
             const rows = d.deletions || [];
-            const names = { delete_post: '删除帖子', delete_comment: '删除评论', delete_user: '删除账号', set_admin: '修改管理员', reset_password: '重置密码' };
+            const names = { delete_post: '删除帖子', delete_comment: '删除评论', delete_user: '删除账号', set_admin: '修改管理员', reset_password: '重置密码', pin_post: '置顶帖子', unpin_post: '取消置顶' };
             wrap.innerHTML = rows.length ? rows.map(function (x) {
                 let content = x.content || '';
                 try { content = JSON.stringify(JSON.parse(content), null, 2); } catch (e) {}
@@ -318,6 +323,47 @@
                     '<details><summary>查看内容快照</summary><pre>' + escapeHtml(content) + '</pre></details>' +
                 '</div>';
             }).join('') : '<div class="admin-empty">暂无删除记录</div>';
+        }
+    }
+
+    function renderPins() {
+        const wrap = $('adminPinList');
+        const pins = state.pins || [];
+        $('adminPinCount').textContent = pins.length + ' / 3';
+        if (!pins.length) {
+            wrap.innerHTML = '<div class="admin-empty">还没有置顶帖子</div>';
+            return;
+        }
+        wrap.innerHTML = pins.map(function (p) {
+            return '<div class="admin-item">' +
+                '<div class="admin-item-main">' +
+                    '<div class="admin-item-title">' + escapeHtml(p.title || '无标题') +
+                        ' <span class="admin-badge image">置顶</span></div>' +
+                    '<div class="admin-item-meta">#' + p.post_id + ' · ' + escapeHtml(p.author) +
+                        ' · 置顶人 ' + escapeHtml(p.pinned_by) + ' · ' + formatExact(p.pinned_at) + '</div>' +
+                '</div>' +
+                '<div class="admin-actions">' +
+                    '<button type="button" class="admin-btn sm" data-action="view-pin" data-id="' + p.post_id + '">查看</button>' +
+                    '<button type="button" class="admin-btn sm danger" data-action="unpin" data-id="' + p.post_id + '">取消置顶</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    async function loadPins() {
+        const data = await apiGet('/api/admin/pins');
+        state.pins = data.pins || [];
+        renderPins();
+        renderPosts();
+    }
+
+    async function pinPost(id, on) {
+        try {
+            await apiPost('/api/admin/posts/' + id + '/pin', { on: on });
+            toast(on ? '已置顶' : '已取消置顶', 'success');
+            await Promise.all([loadPins(), loadPosts(), loadAudit()]);
+        } catch (e) {
+            toast(e.message || '操作失败', 'error');
         }
     }
 
@@ -367,7 +413,7 @@
         const btn = $('adminRefresh');
         btn.disabled = true;
         try {
-            await Promise.all([loadStats(), loadPosts(), loadUsers(), loadAudit()]);
+            await Promise.all([loadStats(), loadPins(), loadPosts(), loadUsers(), loadAudit()]);
             renderOverview();
         } catch (e) {
             toast(e.message || '加载失败', 'error');
@@ -622,6 +668,7 @@
             const post = state.posts.filter(function (p) { return p.id === id; })[0] || {};
             if (btn.getAttribute('data-action') === 'view-post') openPostDetail(id);
             if (btn.getAttribute('data-action') === 'delete-post') deletePost(id, post.title);
+            if (btn.getAttribute('data-action') === 'pin-post') pinPost(id, !(state.pins || []).some(function (x) { return x.post_id === id; }));
         });
         $('adminRecentPosts').addEventListener('click', function (e) {
             const row = e.target.closest('[data-open-post]');
@@ -665,6 +712,14 @@
         $('adminRecentUsers').addEventListener('click', function (e) {
             const row = e.target.closest('[data-open-user]');
             if (row) openUserDetail(row.getAttribute('data-open-user'));
+        });
+
+        $('adminPinList').addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            const id = Number(btn.getAttribute('data-id'));
+            if (btn.getAttribute('data-action') === 'view-pin') openPostDetail(id);
+            if (btn.getAttribute('data-action') === 'unpin') pinPost(id, false);
         });
 
         $('adminAuditTabs').addEventListener('click', function (e) {
