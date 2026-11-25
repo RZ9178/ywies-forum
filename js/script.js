@@ -364,12 +364,15 @@ function boardPill(board) {
     return '<span class="board-pill ' + escapeHtml(board) + '">' + escapeHtml(boardLabel(board)) + '</span>';
 }
 
-function avatarMarkup(url, name, className) {
+function avatarMarkup(url, name, className, author) {
     const initial = String(name || '?').trim().slice(0, 1).toUpperCase() || '?';
+    const attr = author
+        ? ' data-author="' + escapeHtml(author) + '" role="button" tabindex="0"'
+        : '';
     if (url) {
-        return '<span class="' + className + '"><img src="' + escapeHtml(url) + '" alt=""></span>';
+        return '<span class="' + className + '"' + attr + '><img src="' + escapeHtml(url) + '" alt=""></span>';
     }
-    return '<span class="' + className + '"><span class="avatar-initial">' + escapeHtml(initial) + '</span></span>';
+    return '<span class="' + className + '"' + attr + '><span class="avatar-initial">' + escapeHtml(initial) + '</span></span>';
 }
 
 function getPostTags(post) {
@@ -2077,7 +2080,7 @@ function commentHtml(c, opts) {
     const liked = c.liked !== undefined ? !!c.liked : (getCommentLiked().indexOf(c.id) !== -1);
     return '<div class="comment-item' + (isReply ? ' comment-reply' : '') + '" data-cid="' + c.id + '">' +
         '<div class="comment-head">' +
-            avatarMarkup(c.author_avatar, c.author, 'comment-avatar' + (isReply ? ' small' : '')) +
+            avatarMarkup(c.author_avatar, c.author, 'comment-avatar' + (isReply ? ' small' : ''), c.author) +
             '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
             (isAuthor ? '<span class="comment-author-tag">' + T('op') + '</span>' : '') +
             (isReply && c.reply_to ? '<span class="comment-reply-to">' + escapeHtml(T('replyTo', { name: c.reply_to })) + '</span>' : '') +
@@ -2143,6 +2146,21 @@ function renderComments() {
 
 function bindCommentActions() {
     const list = document.getElementById('commentsList');
+    list.querySelectorAll('.comment-avatar[data-author]').forEach(function (avatar) {
+        const openAuthor = function () {
+            const author = avatar.getAttribute('data-author');
+            if (!author) return;
+            closeDetail();
+            openProfile(author);
+        };
+        avatar.addEventListener('click', openAuthor);
+        avatar.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openAuthor();
+            }
+        });
+    });
     list.querySelectorAll('.comment-del').forEach(function (btn) {
         btn.addEventListener('click', async function () {
             const cid = Number(this.getAttribute('data-cid'));
@@ -2568,11 +2586,25 @@ function renderProfile(data) {
     document.getElementById('profileBack').title = T('profileBack');
 
     const stats = document.getElementById('profileStats');
+    const followingCanView = !!u.is_self || isMe || !!u.following_public;
+    const followersCanView = !!u.is_self || isMe || !!u.followers_public;
+    function lockIcon(self, isPublic) {
+        if (isPublic) return '';
+        if (!self) return '<span class="profile-stat-private" title="' + T('profileListPrivate') + '"> <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg></span>';
+        return '<span class="profile-stat-private" title="' + T('profilePrivateHint') + '"> <svg class="icon" aria-hidden="true"><use href="#i-lock"></use></svg></span>';
+    }
+    function connectionStat(count, label, type, canView, isPublic, self) {
+        if (canView) {
+            return '<button type="button" class="profile-stat clickable" data-connections="' + type + '"><b>' +
+                formatCount(count) + '</b><span>' + label + lockIcon(self, isPublic) + '</span></button>';
+        }
+        return '<div class="profile-stat private-stat"><b>' + formatCount(count) + '</b><span>' + label + lockIcon(self, isPublic) + '</span></div>';
+    }
     stats.innerHTML =
         '<div class="profile-stat"><b>' + formatCount(u.comments_count) + '</b><span>' + T('profileComments') + '</span></div>' +
         '<div class="profile-stat"><b>' + formatCount(u.likes_total) + '</b><span>' + T('profileLikes') + '</span></div>' +
-        '<button type="button" class="profile-stat clickable" data-connections="following"><b>' + formatCount(u.following_count) + '</b><span>' + T('profileFollowing') + '</span></button>' +
-        '<button type="button" class="profile-stat clickable" data-connections="followers"><b>' + formatCount(u.followers_count) + '</b><span>' + T('profileFollowers') + '</span></button>';
+        connectionStat(u.following_count, T('profileFollowing'), 'following', followingCanView, !!u.following_public, isMe) +
+        connectionStat(u.followers_count, T('profileFollowers'), 'followers', followersCanView, !!u.followers_public, isMe);
     stats.querySelectorAll('[data-connections]').forEach(function (btn) {
         btn.addEventListener('click', function () {
             openConnections(currentProfileUsername, this.getAttribute('data-connections'));
@@ -2901,6 +2933,8 @@ function openProfileEdit() {
     document.getElementById('editBio').value = u.bio || '';
     document.getElementById('editLikesPublic').checked = !!u.likes_public;
     document.getElementById('editBookmarksPublic').checked = !!u.bookmarks_public;
+    document.getElementById('editFollowingPublic').checked = !!u.following_public;
+    document.getElementById('editFollowersPublic').checked = !!u.followers_public;
     document.getElementById('editStatus').textContent = '';
     renderProfileEditMedia();
     document.getElementById('profileEditModal').hidden = false;
@@ -2965,7 +2999,9 @@ async function saveProfileEdit() {
             avatar: profileEditAvatar,
             banner: profileEditBanner,
             likes_public: document.getElementById('editLikesPublic').checked,
-            bookmarks_public: document.getElementById('editBookmarksPublic').checked
+            bookmarks_public: document.getElementById('editBookmarksPublic').checked,
+            following_public: document.getElementById('editFollowingPublic').checked,
+            followers_public: document.getElementById('editFollowersPublic').checked
         });
         if (!res.ok) {
             const err = await res.json().catch(function () { return {}; });
@@ -2980,6 +3016,8 @@ async function saveProfileEdit() {
         currentProfileData.user.banner = data.user.banner;
         currentProfileData.user.likes_public = !!data.user.likes_public;
         currentProfileData.user.bookmarks_public = !!data.user.bookmarks_public;
+        currentProfileData.user.following_public = !!data.user.following_public;
+        currentProfileData.user.followers_public = !!data.user.followers_public;
         currentProfileUsername = data.user.username;
         if (Auth.user) {
             Auth.user.username = data.user.username;
@@ -2989,6 +3027,8 @@ async function saveProfileEdit() {
             Auth.user.banner = data.user.banner;
             Auth.user.likes_public = data.user.likes_public;
             Auth.user.bookmarks_public = data.user.bookmarks_public;
+            Auth.user.following_public = data.user.following_public;
+            Auth.user.followers_public = data.user.followers_public;
             Auth.save(Auth.token, Auth.user);
         }
         if (oldUsername && oldUsername !== data.user.username) {

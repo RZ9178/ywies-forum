@@ -34,6 +34,8 @@ CREATE TABLE users (
     banner      TEXT DEFAULT '',
     likes_public INTEGER DEFAULT 0,
     bookmarks_public INTEGER DEFAULT 0,
+    following_public INTEGER DEFAULT 0,
+    followers_public INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

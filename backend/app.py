@@ -161,7 +161,7 @@ def _get_current_user():
     try:
         row = conn.execute(
             "SELECT u.id, u.email, u.username, u.is_admin, u.coins, u.display_name, u.bio, u.avatar, u.banner, "
-            "u.likes_public, u.bookmarks_public FROM sessions s "
+            "u.likes_public, u.bookmarks_public, u.following_public, u.followers_public FROM sessions s "
             "JOIN users u ON u.username = s.username "
             "WHERE s.token=? AND s.expires>?",
             (token, time.time()),
@@ -170,7 +170,8 @@ def _get_current_user():
             # 兼容旧 token（users.token 单列），迁移后会自动复制进 sessions
             row = conn.execute(
                 "SELECT id, email, username, is_admin, coins, display_name, bio, avatar, banner, "
-                "likes_public, bookmarks_public FROM users WHERE token=? AND token_expires>?",
+                "likes_public, bookmarks_public, following_public, followers_public "
+                "FROM users WHERE token=? AND token_expires>?",
                 (token, time.time()),
             ).fetchone()
         return dict(row) if row else None
@@ -291,7 +292,8 @@ def register():
     return jsonify({"token": token, "user": {"id": user_id, "email": fake_email, "username": username,
                                              "is_admin": 0, "coins": 10, "display_name": username,
                                              "bio": "", "avatar": "", "banner": "",
-                                             "likes_public": 0, "bookmarks_public": 0}})
+                                             "likes_public": 0, "bookmarks_public": 0,
+                                             "following_public": 0, "followers_public": 0}})
 
 
 @app.route("/api/login", methods=["POST"])
@@ -333,7 +335,9 @@ def login():
                      "bio": row["bio"] or "", "avatar": row["avatar"] or "",
                      "banner": row["banner"] or "",
                      "likes_public": row["likes_public"] or 0,
-                     "bookmarks_public": row["bookmarks_public"] or 0}
+                     "bookmarks_public": row["bookmarks_public"] or 0,
+                     "following_public": row["following_public"] or 0,
+                     "followers_public": row["followers_public"] or 0}
         })
     finally:
         conn.close()
@@ -469,7 +473,7 @@ def _today_shanghai():
 
 
 def _claim_daily_coins(conn, user_id):
-    """每天首次登录/打开网站发 3 币；当天只发一次，不发通知。"""
+    """每天首次登录/打开网站发 10 币；当天只发一次，不发通知。"""
     row = conn.execute(
         "SELECT coins, last_daily_coin FROM users WHERE id=?", (user_id,)
     ).fetchone()
@@ -485,13 +489,13 @@ def _claim_daily_coins(conn, user_id):
     if last >= today:
         return coins
     cur = conn.execute(
-        "UPDATE users SET coins=COALESCE(coins, 0)+3, last_daily_coin=? "
+        "UPDATE users SET coins=COALESCE(coins, 0)+10, last_daily_coin=? "
         "WHERE id=? AND last_daily_coin=?",
         (today, user_id, last),
     )
     conn.commit()
     if cur.rowcount > 0:
-        return coins + 3
+        return coins + 10
     row = conn.execute("SELECT coins FROM users WHERE id=?", (user_id,)).fetchone()
     return (row["coins"] if row and row["coins"] is not None else coins)
 
@@ -957,7 +961,7 @@ def user_profile(username):
     try:
         user = conn.execute(
             "SELECT id, username, display_name, bio, avatar, banner, is_admin, "
-            "likes_public, bookmarks_public, created_at FROM users WHERE username=?",
+            "likes_public, bookmarks_public, following_public, followers_public, created_at FROM users WHERE username=?",
             (username,),
         ).fetchone()
         if not user:
@@ -1025,6 +1029,8 @@ def user_profile(username):
                 "is_self": is_self,
                 "likes_public": bool(user["likes_public"]),
                 "bookmarks_public": bool(user["bookmarks_public"]),
+                "following_public": bool(user["following_public"]),
+                "followers_public": bool(user["followers_public"]),
                 "liked_count": liked_count,
                 "bookmarked_count": bookmarked_count,
                 **_time_fields(user["created_at"], viewer_admin),
@@ -1139,8 +1145,16 @@ def user_connections(username):
     viewer = _get_current_user()
     conn = get_db()
     try:
-        if not conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+        target = conn.execute(
+            "SELECT username, following_public, followers_public FROM users WHERE username=?",
+            (username,),
+        ).fetchone()
+        if not target:
             return jsonify({"error": "用户不存在"}), 404
+        is_self = bool(viewer and viewer["username"] == username)
+        is_public = bool(target["following_public"] if typ == "following" else target["followers_public"])
+        if not is_self and not is_public:
+            return jsonify({"error": "该列表未公开"}), 403
         if typ == "followers":
             rows = conn.execute(
                 "SELECT u.username, u.display_name, u.avatar FROM follows f "
@@ -1285,6 +1299,8 @@ def update_my_profile():
     banner = (data.get("banner") or "").strip()
     likes_public = 1 if data.get("likes_public") else 0
     bookmarks_public = 1 if data.get("bookmarks_public") else 0
+    following_public = 1 if data.get("following_public") else 0
+    followers_public = 1 if data.get("followers_public") else 0
     for value, label in ((avatar, "头像"), (banner, "背景")):
         if value and (len(value) > 2048 or not (value.startswith("https://") or value.startswith("http://"))):
             return jsonify({"error": f"{label}地址不合法"}), 400
@@ -1305,8 +1321,10 @@ def update_my_profile():
                 (new_name, request.current_user["id"]),
             )
         conn.execute(
-            "UPDATE users SET bio=?, avatar=?, banner=?, likes_public=?, bookmarks_public=? WHERE id=?",
-            (bio, avatar, banner, likes_public, bookmarks_public, request.current_user["id"]),
+            "UPDATE users SET bio=?, avatar=?, banner=?, likes_public=?, bookmarks_public=?, "
+            "following_public=?, followers_public=? WHERE id=?",
+            (bio, avatar, banner, likes_public, bookmarks_public, following_public,
+             followers_public, request.current_user["id"]),
         )
         conn.commit()
         return jsonify({"ok": True, "user": {
@@ -1318,6 +1336,8 @@ def update_my_profile():
             "banner": banner,
             "likes_public": likes_public,
             "bookmarks_public": bookmarks_public,
+            "following_public": following_public,
+            "followers_public": followers_public,
             "is_admin": request.current_user.get("is_admin") or 0,
         }})
     except Exception:
@@ -2470,6 +2490,8 @@ def _migrate():
                     banner TEXT DEFAULT '',
                     likes_public INTEGER DEFAULT 0,
                     bookmarks_public INTEGER DEFAULT 0,
+                    following_public INTEGER DEFAULT 0,
+                    followers_public INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -2819,7 +2841,8 @@ def _migrate():
             ("comments", ["likes", "parent_id", "reply_to"]),
             ("notifs", ["post_id"]),
             ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
-                       "display_name", "bio", "avatar", "banner", "likes_public", "bookmarks_public"]),
+                       "display_name", "bio", "avatar", "banner", "likes_public", "bookmarks_public",
+                       "following_public", "followers_public"]),
             ("posts", ["board", "kind", "format", "music_artist", "music_url"]),
         ]:
             if is_pg:
