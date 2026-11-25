@@ -2873,8 +2873,6 @@ function openConnections(username, type) {
     document.querySelectorAll('.connections-tab').forEach(function (b) {
         b.classList.toggle('active', b.getAttribute('data-type') === currentConnectionsType);
     });
-    document.getElementById('connectionsTitle').textContent =
-        currentConnectionsType === 'followers' ? T('profileFollowers') : T('profileFollowing');
     loadConnections();
 }
 
