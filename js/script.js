@@ -427,7 +427,7 @@ function hotRank(list) {
     return pins.concat(latestComment ? [latestComment] : [], others);
 }
 
-function render() {
+function getFilteredPosts() {
     let list = allPosts.slice();
     if (currentTag) {
         list = list.filter(function (p) { return getPostTags(p).indexOf(currentTag) !== -1; });
@@ -444,6 +444,11 @@ function render() {
     if (currentBoard !== 'all') {
         list = list.filter(function (p) { return (p.board || 'general') === currentBoard; });
     }
+    return list;
+}
+
+function render() {
+    let list = getFilteredPosts();
     const pinSort = function (a, b) {
         return (Number(b.pin_order) || 0) - (Number(a.pin_order) || 0) || b.id - a.id;
     };
@@ -1815,6 +1820,52 @@ function closeDetailMoreMenu() {
     if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
+function updateCardAfterDetailClose(post) {
+    if (!post) return;
+    const grid = document.getElementById('postList');
+    if (!grid) return;
+    const card = grid.querySelector('.post-card[data-id="' + post.id + '"]');
+    if (!card) return;
+    if (currentTab === 'unread') {
+        card.remove();
+        if (!grid.querySelector('.post-card')) {
+            const empty = document.getElementById('emptyState');
+            if (empty) {
+                empty.classList.remove('retry');
+                empty.textContent = (searchQuery || currentTag) ? T('emptyFiltered') : T('emptyPosts');
+                empty.hidden = false;
+            }
+        }
+        scheduleMasonry();
+        return;
+    }
+    card.classList.remove('is-unread');
+    card.classList.add('is-read');
+    const stats = card.querySelector('.card-stats');
+    if (stats) {
+        stats.innerHTML =
+            '<span title="' + T('tooltipLike') + '"><svg class="icon" aria-hidden="true"><use href="#i-like"></use></svg>' + (post.likes || 0) + '</span>' +
+            '<span title="' + T('tooltipViews') + '"><svg class="icon" aria-hidden="true"><use href="#i-eye"></use></svg>' + (post.views || 0) + '</span>' +
+            '<span title="' + T('tooltipReplies') + '"><svg class="icon" aria-hidden="true"><use href="#i-reply"></use></svg>' + (post.replies || 0) + '</span>';
+    }
+}
+
+function reorderHotCards() {
+    if (currentTab !== 'hot') return;
+    const list = hotRank(getFilteredPosts());
+    const grid = document.getElementById('postList');
+    if (!grid) return;
+    const cards = {};
+    grid.querySelectorAll('.post-card').forEach(function (card) {
+        cards[card.getAttribute('data-id')] = card;
+    });
+    list.forEach(function (p) {
+        const card = cards[String(p.id)];
+        if (card) grid.appendChild(card);
+    });
+    scheduleMasonry();
+}
+
 function closeDetail() {
     const returnScrollY = detailReturnScrollY;
     detailReturnScrollY = null;
@@ -1828,16 +1879,18 @@ function closeDetail() {
     document.getElementById('detailModal').hidden = true;
     const profilePage = document.getElementById('profilePage');
     if (!profilePage || profilePage.hidden) document.body.style.overflow = '';
+    const closedPost = currentPost;
     currentPost = null;
     allComments = [];
-    render();
     if (profilePage && !profilePage.hidden) {
         if (currentProfileTab === 'likes' || currentProfileTab === 'bookmarks') {
             profileSavedCache[currentProfileTab] = null;
             selectProfileTab(currentProfileTab);
         }
-    } else if (returnScrollY !== null) {
-        startScrollRestore(returnScrollY);
+    } else {
+        // 不重建整个瀑布流，避免图片重新加载导致主页闪一下
+        updateCardAfterDetailClose(closedPost);
+        reorderHotCards();
     }
 }
 
