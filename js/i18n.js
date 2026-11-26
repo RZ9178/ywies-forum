@@ -176,7 +176,7 @@
         postContentPlaceholder: { zh: '想说点什么...', en: 'What’s on your mind...' },
         postImageLabel: { zh: '图片（可选，单张 ≤10MB）', en: 'Images (optional, max 10MB each)' },
         postImageLabelLevel: { zh: '图片（可选，Lv.{level} 最多 {n} 张，单张 ≤10MB）', en: 'Images (optional, Lv.{level} up to {n}, max 10MB each)' },
-        postUploadPlaceholder: { zh: '点击或拖拽上传图片（自动压缩）', en: 'Click or drag to upload (auto-compressed)' },
+        postUploadPlaceholder: { zh: '点击或拖拽上传图片（GIF/WebP 动图保留动画）', en: 'Click or drag images (animated GIF/WebP preserved)' },
         postImageNotConfigured: { zh: '图片上传暂未配置，可先发纯文字', en: 'Image upload isn’t configured. You can post text only.' },
         postTagsLabel: { zh: '标签', en: 'Tags' },
         postNewTagPlaceholder: { zh: '输入新标签，回车添加', en: 'Type a new tag and press Enter' },

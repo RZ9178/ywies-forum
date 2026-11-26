@@ -1026,6 +1026,13 @@ async function handleImageFiles(fileList) {
 }
 
 function prepareImageBlob(file) {
+    const type = String(file.type || '').toLowerCase();
+    const name = String(file.name || '').toLowerCase();
+    // GIF/WebP 可能是动图，APNG 也是动图；canvas 压缩会丢掉帧，直接保留原文件。
+    if (type === 'image/gif' || type === 'image/webp' ||
+        type === 'image/apng' || /\.apng$/.test(name)) {
+        return Promise.resolve(file);
+    }
     return new Promise(function (resolve, reject) {
         const reader = new FileReader();
         reader.onerror = function () { reject(new Error('读取图片失败')); };
@@ -1101,6 +1108,10 @@ function loadImage(src) {
 }
 
 async function uploadImageBlob(blob, originalName) {
+    if (blob.type === 'image/apng') {
+        // 后端只接受 png MIME；保留 APNG 字节，动画仍由浏览器播放
+        blob = new Blob([blob], { type: 'image/png' });
+    }
     let ext = 'jpg';
     if (blob.type === 'image/png') ext = 'png';
     else if (blob.type === 'image/webp') ext = 'webp';
