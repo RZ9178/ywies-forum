@@ -6,7 +6,7 @@
     <title>YWIES 论坛</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/misans@5.0.0/lib/Normal/MiSansVF.min.css" crossorigin="anonymous">
-    <link rel="stylesheet" href="style.css?v=20261125c">
+    <link rel="stylesheet" href="style.css?v=20261125d">
 </head>
 <body>
 
@@ -287,7 +287,10 @@
                 <div class="post-body">
                     <div class="board-note" id="publishBoardNote" hidden></div>
                     <div class="post-form-group">
-                        <label id="postTitleLabel" data-i18n="postTitleLabel">标题</label>
+                        <div class="post-label-row">
+                            <label id="postTitleLabel" data-i18n="postTitleLabel">标题</label>
+                            <span class="post-counter" id="postTitleCounter" hidden>0/50</span>
+                        </div>
                         <input type="text" id="postTitle" placeholder="给帖子起个标题..." data-i18n-placeholder="postTitlePlaceholder">
                     </div>
 
@@ -304,7 +307,10 @@
                     </div>
 
                     <div class="post-form-group">
-                        <label id="postContentLabel" data-i18n="postContentLabel">正文</label>
+                        <div class="post-label-row">
+                            <label id="postContentLabel" data-i18n="postContentLabel">正文</label>
+                            <span class="post-counter" id="postContentCounter" hidden>0/2000</span>
+                        </div>
                         <div class="md-toolbar" id="mdToolbar" hidden>
                             <button type="button" data-md="bold" title="加粗">B</button>
                             <button type="button" data-md="italic" title="斜体"><i>I</i></button>
@@ -482,9 +488,9 @@
         </div>
     </div>
 
-    <script src="js/auth.js?v=20261125c"></script>
-    <script src="js/i18n.js?v=20261125c"></script>
-    <script src="js/chat.js?v=20261125c"></script>
-    <script src="js/script.js?v=20261125c"></script>
+    <script src="js/auth.js?v=20261125d"></script>
+    <script src="js/i18n.js?v=20261125d"></script>
+    <script src="js/chat.js?v=20261125d"></script>
+    <script src="js/script.js?v=20261125d"></script>
 </body>
 </html>

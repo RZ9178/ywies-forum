@@ -2980,3 +2980,22 @@ input[readonly] {
 .profile-stat-private .icon { width: 10px; height: 10px; }
 .profile-stat.private-stat { cursor: default; }
 .profile-stat.private-stat span { display: inline-flex; align-items: center; gap: 2px; }
+
+/* 发布字数计数 */
+.post-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.post-counter {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.post-counter.over {
+    color: var(--danger);
+    font-weight: 700;
+}

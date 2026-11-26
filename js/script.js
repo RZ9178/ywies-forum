@@ -822,6 +822,8 @@ function bindPostModal() {
     });
     document.getElementById('mdPreviewBtn').addEventListener('click', toggleMarkdownPreview);
     document.getElementById('postContent').addEventListener('input', scheduleMarkdownPreview);
+    document.getElementById('postContent').addEventListener('input', updatePostCounters);
+    document.getElementById('postTitle').addEventListener('input', updatePostCounters);
 }
 
 function openPostModal() {
@@ -851,6 +853,7 @@ function openPostModal() {
     publishBoard = 'general';
     document.getElementById('publishChooser').hidden = false;
     document.getElementById('publishForm').hidden = true;
+    updatePostCounters();
     document.getElementById('postModal').hidden = false;
     document.body.style.overflow = 'hidden';
 }
@@ -937,15 +940,8 @@ function choosePublishBoard(board) {
     }
     const titleInput = document.getElementById('postTitle');
     const contentInput = document.getElementById('postContent');
-    if (isGeneral) {
-        titleInput.maxLength = 50;
-        contentInput.maxLength = 2000;
-        if (titleInput.value.length > 50) titleInput.value = titleInput.value.slice(0, 50);
-        if (contentInput.value.length > 2000) contentInput.value = contentInput.value.slice(0, 2000);
-    } else {
-        titleInput.removeAttribute('maxlength');
-        contentInput.removeAttribute('maxlength');
-    }
+    titleInput.removeAttribute('maxlength');
+    contentInput.removeAttribute('maxlength');
     document.getElementById('postTitleLabel').textContent = T(titleKey);
     document.getElementById('postTitle').placeholder = T(titlePh);
     document.getElementById('postContentLabel').textContent = T(contentKey);
@@ -967,6 +963,25 @@ function choosePublishBoard(board) {
         addPollOption('');
         addPollOption('');
     }
+    updatePostCounters();
+}
+
+function updatePostCounters() {
+    const title = document.getElementById('postTitle');
+    const content = document.getElementById('postContent');
+    const titleCounter = document.getElementById('postTitleCounter');
+    const contentCounter = document.getElementById('postContentCounter');
+    if (!title || !content || !titleCounter || !contentCounter) return;
+    const general = publishBoard === 'general';
+    titleCounter.hidden = !general;
+    contentCounter.hidden = !general;
+    if (!general) return;
+    const titleLen = Array.from(title.value || '').length;
+    const contentLen = Array.from(content.value || '').length;
+    titleCounter.textContent = titleLen + '/50';
+    contentCounter.textContent = contentLen + '/2000';
+    titleCounter.classList.toggle('over', titleLen > 50);
+    contentCounter.classList.toggle('over', contentLen > 2000);
 }
 
 async function handleImageFiles(fileList) {
@@ -1305,6 +1320,10 @@ async function submitPost() {
     if (!title) { alert(T('enterTitle')); return; }
     if (isNote && !content) { alert(T('enterContent')); return; }
     if (!isPoll && !isNote && !isMusic && !content) { alert(T('enterContent')); return; }
+    if (publishBoard === 'general') {
+        if (Array.from(title).length > 50) { alert(T('generalTitleOver')); return; }
+        if (Array.from(content).length > 2000) { alert(T('generalContentOver')); return; }
+    }
     if (!isPoll && imageProcessing) { alert(T('uploadPending')); return; }
     if (isMusic) {
         if (!document.getElementById('musicArtist').value.trim()) { alert(T('musicArtistRequired')); return; }
