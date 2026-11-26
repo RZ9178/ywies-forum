@@ -166,6 +166,8 @@
         postModalTitle: { zh: '发布作品', en: 'Publish' },
         postAuthorLabel: { zh: '发布身份', en: 'Posting as' },
         postAuthorTitle: { zh: '以当前登录账号发布', en: 'Posting with your account' },
+        generalTitleLabel: { zh: '标题（最多 50 字）', en: 'Title (max 50 chars)' },
+        generalContentLabel: { zh: '正文（最多 2000 字）', en: 'Body (max 2000 chars)' },
         postTitleLabel: { zh: '标题', en: 'Title' },
         postTitlePlaceholder: { zh: '给帖子起个标题...', en: 'Give your post a title...' },
         postContentLabel: { zh: '正文', en: 'Content' },

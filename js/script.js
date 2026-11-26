@@ -830,7 +830,6 @@ function openPostModal() {
         window.location.href = 'login.html';
         return;
     }
-    document.getElementById('postAuthor').value = Auth.user.username || '';
     document.getElementById('postTitle').value = '';
     document.getElementById('postContent').value = '';
     document.getElementById('musicArtist').value = '';
@@ -907,6 +906,7 @@ function choosePublishBoard(board) {
     const isPoll = publishBoard === 'poll';
     const isNote = publishBoard === 'study' || publishBoard === 'share';
     const isMusic = publishBoard === 'music';
+    const isGeneral = publishBoard === 'general';
 
     mdPreviewActive = false;
     clearTimeout(mdPreviewTimer);
@@ -932,6 +932,19 @@ function choosePublishBoard(board) {
     } else if (isNote) {
         titleKey = 'noteTitleLabel'; contentKey = 'noteContentLabel';
         titlePh = 'postTitlePlaceholder'; contentPh = 'noteContentPlaceholder';
+    } else if (isGeneral) {
+        titleKey = 'generalTitleLabel'; contentKey = 'generalContentLabel';
+    }
+    const titleInput = document.getElementById('postTitle');
+    const contentInput = document.getElementById('postContent');
+    if (isGeneral) {
+        titleInput.maxLength = 50;
+        contentInput.maxLength = 2000;
+        if (titleInput.value.length > 50) titleInput.value = titleInput.value.slice(0, 50);
+        if (contentInput.value.length > 2000) contentInput.value = contentInput.value.slice(0, 2000);
+    } else {
+        titleInput.removeAttribute('maxlength');
+        contentInput.removeAttribute('maxlength');
     }
     document.getElementById('postTitleLabel').textContent = T(titleKey);
     document.getElementById('postTitle').placeholder = T(titlePh);

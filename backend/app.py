@@ -792,6 +792,11 @@ def create_post():
     tags = ",".join(tags_list)
     if not title:
         return jsonify({"error": "标题不能为空"}), 400
+    if board == "general":
+        if len(title) > 50:
+            return jsonify({"error": "灌水帖标题最多 50 个字符"}), 400
+        if len(content) > 2000:
+            return jsonify({"error": "灌水帖正文最多 2000 个字符"}), 400
     if kind not in ("poll", "music") and not content:
         return jsonify({"error": "内容不能为空"}), 400
     if kind == "music":
