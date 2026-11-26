@@ -215,6 +215,10 @@
         deleteCommentConfirm: { zh: '删除这条评论？', en: 'Delete this comment?' },
         deleteCommentRepliesConfirm: { zh: '删除这条评论？其下 {n} 条回复也会一起删除', en: 'Delete this comment and its {n} replies?' },
         reportSoon: { zh: '举报功能还在开发中，之后开放', en: 'Reporting is coming soon.' },
+        commentPinned: { zh: '置顶', en: 'Pinned' },
+        pinComment: { zh: '置顶', en: 'Pin' },
+        unpinComment: { zh: '取消置顶', en: 'Unpin' },
+        pinCommentFailed: { zh: '置顶失败', en: 'Failed to pin' },
         deletePostConfirm: { zh: '确定删除这条帖子？', en: 'Delete this post?' },
 
         loginToLike: { zh: '请先登录再点赞', en: 'Please log in to like posts.' },

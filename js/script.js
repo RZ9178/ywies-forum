@@ -15,6 +15,7 @@ let tripleSuppressClickUntil = 0;
 let triplePressState = null;
 let tripleToastTimer = null;
 let detailReturnScrollY = null;
+let commentMenuTarget = null;
 let scrollRestoreTarget = null;
 let scrollRestoreDeadline = 0;
 let currentTag = '';
@@ -1712,6 +1713,7 @@ function bindDetailModal() {
         if (handleMentionKeydown(e)) return;
         if (e.key === 'Enter' && !e.isComposing) submitComment();
     });
+    bindCommentMenu();
     const moreBtn = document.getElementById('footerMore');
     const moreMenu = document.getElementById('detailMoreMenu');
     const moreDelete = document.getElementById('moreDelete');
@@ -1913,6 +1915,7 @@ function reorderHotCards() {
 }
 
 function closeDetail() {
+    closeCommentMenu();
     const returnScrollY = detailReturnScrollY;
     detailReturnScrollY = null;
     cancelTriplePress();
@@ -2119,16 +2122,17 @@ function commentHtml(c, opts) {
     const isAdmin = Auth.isAdmin();
     const isReply = !!opts.isReply;
     const isAuthor = c.author === postAuthor;
-    const canDel = isAdmin || c.author === me;
     const liked = c.liked !== undefined ? !!c.liked : (getCommentLiked().indexOf(c.id) !== -1);
     return '<div class="comment-item' + (isReply ? ' comment-reply' : '') + '" data-cid="' + c.id + '">' +
         '<div class="comment-head">' +
             avatarMarkup(c.author_avatar, c.author, 'comment-avatar' + (isReply ? ' small' : ''), c.author) +
             '<span class="comment-name">' + escapeHtml(c.author) + '</span>' +
             (isAuthor ? '<span class="comment-author-tag">' + T('op') + '</span>' : '') +
+            (c.pinned ? '<span class="comment-pinned">' + T('commentPinned') + '</span>' : '') +
             (isReply && c.reply_to ? '<span class="comment-reply-to">' + escapeHtml(T('replyTo', { name: c.reply_to })) + '</span>' : '') +
             (!isReply ? '<span class="comment-floor">' + (opts.floor || 0) + 'F</span>' : '') +
-            (canDel ? '<button class="comment-del" data-cid="' + c.id + '" title="' + T('delete') + '">' + T('deleteShort') + '</button>' : '') +
+            '<button type="button" class="comment-more" data-cid="' + c.id + '" title="' + T('more') + '" aria-label="' + T('more') + '" aria-haspopup="true">' +
+                '<svg class="icon icon-more" aria-hidden="true"><use href="#i-more"></use></svg></button>' +
         '</div>' +
         '<div class="comment-text">' + linkify(c.content) + '</div>' +
         '<div class="comment-actions">' +
@@ -2162,14 +2166,24 @@ function renderComments() {
         (children[c.parent_id] = children[c.parent_id] || []).push(c);
     });
     Object.keys(children).forEach(function (k) {
-        children[k].sort(function (a, b) { return a.id - b.id; });
+        children[k].sort(function (a, b) {
+            const pinDiff = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+            return pinDiff || a.id - b.id;
+        });
     });
-    const ordered = commentSort === 'latest' ? roots.slice().reverse() : roots;
+    const threadPinned = function (root) {
+        return !!root.pinned || (children[root.id] || []).some(function (r) { return r.pinned; });
+    };
+    const ordered = roots.slice().sort(function (a, b) {
+        const pinDiff = (threadPinned(b) ? 1 : 0) - (threadPinned(a) ? 1 : 0);
+        if (pinDiff) return pinDiff;
+        return commentSort === 'latest' ? b.id - a.id : a.id - b.id;
+    });
     list.innerHTML = ordered.map(function (root) {
         const replies = children[root.id] || [];
         let html = commentHtml(root, { floor: floorMap[root.id] });
         if (replies.length) {
-            const expanded = !!expandedReplyThreads[root.id];
+            const expanded = !!expandedReplyThreads[root.id] || replies.some(function (r) { return r.pinned; });
             const shown = expanded ? replies : replies.slice(0, 1);
             html += '<div class="comment-replies">' +
                 shown.map(function (r) {
@@ -2185,6 +2199,108 @@ function renderComments() {
         return html;
     }).join('');
     bindCommentActions();
+}
+
+function closeCommentMenu() {
+    const menu = document.getElementById('commentMenu');
+    if (menu) {
+        menu.hidden = true;
+        menu.style.visibility = '';
+    }
+    commentMenuTarget = null;
+}
+
+function openCommentMenu(button, cid) {
+    const menu = document.getElementById('commentMenu');
+    const c = allComments.find(function (x) { return x.id === cid; });
+    if (!menu || !c || !button) return;
+    const me = Auth.isLoggedIn() ? Auth.user.username : '';
+    const postOwner = currentPost ? currentPost.author : '';
+    const isPostOwner = !!(me && postOwner === me);
+    const isOwn = !!(me && c.author === me);
+    const canDelete = Auth.isAdmin() || isPostOwner || isOwn;
+    const canPin = isPostOwner && isOwn;
+    const canReport = !isOwn;
+    const del = menu.querySelector('[data-comment-action="delete"]');
+    const pin = menu.querySelector('[data-comment-action="pin"]');
+    const report = menu.querySelector('[data-comment-action="report"]');
+    if (!del || !pin || !report) return;
+    del.hidden = !canDelete;
+    pin.hidden = !canPin;
+    pin.textContent = c.pinned ? T('unpinComment') : T('pinComment');
+    report.hidden = !canReport;
+    if (!canDelete && !canPin && !canReport) return;
+    commentMenuTarget = { cid: cid };
+    menu.hidden = false;
+    menu.style.visibility = 'hidden';
+    const rect = button.getBoundingClientRect();
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    let left = rect.right - width;
+    left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+    let top = rect.bottom + 5;
+    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 5);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.style.visibility = '';
+}
+
+async function deleteCommentById(cid) {
+    const c = allComments.find(function (x) { return x.id === cid; });
+    if (!c) return;
+    const replies = allComments.filter(function (x) { return x.parent_id === cid; });
+    const msg = replies.length
+        ? T('deleteCommentRepliesConfirm', { n: replies.length })
+        : T('deleteCommentConfirm');
+    if (!confirm(msg)) return;
+    try {
+        await Auth.del(API + '/' + currentPost.id + '/comments/' + cid);
+        await reloadComments();
+    } catch (e) {
+        alert(T('deleteFailed') + ' ' + e.message);
+    }
+}
+
+async function toggleCommentPin(cid) {
+    const c = allComments.find(function (x) { return x.id === cid; });
+    if (!c || !currentPost) return;
+    try {
+        const res = await Auth.post(API + '/' + currentPost.id + '/comments/' + cid + '/pin', { on: !c.pinned });
+        if (!res.ok) {
+            const err = await res.json().catch(function () { return {}; });
+            throw new Error(err.error || T('pinCommentFailed'));
+        }
+        await reloadComments();
+    } catch (e) {
+        alert(T('pinCommentFailed') + ' ' + e.message);
+    }
+}
+
+function bindCommentMenu() {
+    const menu = document.getElementById('commentMenu');
+    if (!menu) return;
+    menu.querySelectorAll('[data-comment-action]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!commentMenuTarget) return;
+            const cid = commentMenuTarget.cid;
+            const action = this.getAttribute('data-comment-action');
+            closeCommentMenu();
+            if (action === 'delete') deleteCommentById(cid);
+            else if (action === 'pin') toggleCommentPin(cid);
+            else if (action === 'report') alert(T('reportSoon'));
+        });
+    });
+    document.addEventListener('click', function (e) {
+        if (menu.hidden) return;
+        if (menu.contains(e.target) || e.target.closest('.comment-more')) return;
+        closeCommentMenu();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeCommentMenu();
+    });
+    window.addEventListener('scroll', closeCommentMenu, { passive: true, capture: true });
+    window.addEventListener('resize', closeCommentMenu);
 }
 
 function bindCommentActions() {
@@ -2204,20 +2320,10 @@ function bindCommentActions() {
             }
         });
     });
-    list.querySelectorAll('.comment-del').forEach(function (btn) {
-        btn.addEventListener('click', async function () {
-            const cid = Number(this.getAttribute('data-cid'));
-            const replies = allComments.filter(function (c) { return c.parent_id === cid; });
-            const msg = replies.length
-                ? T('deleteCommentRepliesConfirm', { n: replies.length })
-                : T('deleteCommentConfirm');
-            if (!confirm(msg)) return;
-            try {
-                await Auth.del(API + '/' + currentPost.id + '/comments/' + cid);
-                await reloadComments();
-            } catch (e) {
-                alert(T('deleteFailed') + ' ' + e.message);
-            }
+    list.querySelectorAll('.comment-more').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            openCommentMenu(this, Number(this.getAttribute('data-cid')));
         });
     });
     list.querySelectorAll('.comment-like').forEach(function (btn) {

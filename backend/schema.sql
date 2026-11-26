@@ -66,6 +66,7 @@ CREATE TABLE comments (
     likes       INTEGER NOT NULL DEFAULT 0,
     parent_id   INTEGER DEFAULT 0,
     reply_to    TEXT DEFAULT '',
+    pinned      INTEGER DEFAULT 0,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
 );

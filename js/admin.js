@@ -311,7 +311,7 @@
             }).join('') : '<div class="admin-empty">暂无帖子</div>';
         } else {
             const rows = d.deletions || [];
-            const names = { delete_post: '删除帖子', delete_comment: '删除评论', delete_user: '删除账号', set_admin: '修改管理员', reset_password: '重置密码', pin_post: '置顶帖子', unpin_post: '取消置顶' };
+            const names = { delete_post: '删除帖子', delete_comment: '删除评论', delete_user: '删除账号', set_admin: '修改管理员', reset_password: '重置密码', pin_post: '置顶帖子', unpin_post: '取消置顶', pin_comment: '置顶评论', unpin_comment: '取消置顶评论' };
             wrap.innerHTML = rows.length ? rows.map(function (x) {
                 let content = x.content || '';
                 try { content = JSON.stringify(JSON.parse(content), null, 2); } catch (e) {}

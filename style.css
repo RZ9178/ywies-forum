@@ -2999,3 +2999,52 @@ input[readonly] {
     color: var(--danger);
     font-weight: 700;
 }
+
+/* 评论三点菜单 */
+.comment-more {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+.comment-more .icon { width: 17px; height: 17px; }
+.comment-more:hover { color: var(--text); background: var(--bg-hover); }
+.comment-reply .comment-more { margin-left: auto; }
+.comment-pinned {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 700;
+}
+.comment-menu {
+    position: fixed;
+    z-index: 450;
+    min-width: 118px;
+    padding: 5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    box-shadow: 0 6px 22px var(--shadow-dialog);
+}
+.comment-menu[hidden] { display: none; }
+.comment-menu-item {
+    display: block;
+    width: 100%;
+    padding: 8px 11px;
+    border-radius: 6px;
+    text-align: left;
+    color: var(--text);
+    font-size: 12px;
+}
+.comment-menu-item:hover { background: var(--bg-hover); }
+.comment-menu-item.danger { color: var(--danger); }
+.comment-menu-item[hidden] { display: none; }

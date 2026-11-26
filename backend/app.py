@@ -1655,6 +1655,7 @@ def list_comments(post_id):
             item = dict(r)
             item.update(_time_fields(item["created_at"], viewer_admin))
             item["author_avatar"] = r["author_avatar"] or ""
+            item["pinned"] = bool(r["pinned"]) if "pinned" in r.keys() else False
             item["parent_id"] = item.get("parent_id") or 0
             item["reply_to"] = item.get("reply_to") or ""
             item["liked"] = r["id"] in liked_ids
@@ -1743,6 +1744,7 @@ def create_comment(post_id):
             "id": new_id, "post_id": post_id, "author": author,
             "content": content, "likes": 0, "created_at": "刚刚",
             "author_avatar": request.current_user.get("avatar") or "",
+            "pinned": False,
             "parent_id": parent_id, "reply_to": reply_to,
         }), 201
     finally:
@@ -1794,6 +1796,35 @@ def toggle_comment_like(post_id, cid):
         conn.close()
 
 
+@app.route("/api/posts/<int:post_id>/comments/<int:cid>/pin", methods=["POST"])
+@login_required
+def pin_comment(post_id, cid):
+    data = request.get_json(silent=True) or {}
+    on = bool(data.get("on"))
+    me = request.current_user["username"]
+    conn = get_db()
+    try:
+        post = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        comment = conn.execute(
+            "SELECT author, parent_id FROM comments WHERE id=? AND post_id=?", (cid, post_id)
+        ).fetchone()
+        if not post or not comment:
+            return jsonify({"error": "评论或帖子不存在"}), 404
+        if post["author"] != me:
+            return jsonify({"error": "只有帖主可以置顶评论"}), 403
+        if comment["author"] != me:
+            return jsonify({"error": "只能置顶自己的评论"}), 403
+        conn.execute("UPDATE comments SET pinned=? WHERE id=?", (1 if on else 0, cid))
+        _log_audit(
+            conn, "pin_comment" if on else "unpin_comment", me, "comment", cid, post_id,
+            {"comment_id": cid},
+        )
+        conn.commit()
+        return jsonify({"ok": True, "pinned": on})
+    finally:
+        conn.close()
+
+
 @app.route("/api/posts/<int:post_id>/comments/<int:cid>", methods=["DELETE"])
 @login_required
 def delete_comment(post_id, cid):
@@ -1808,8 +1839,10 @@ def delete_comment(post_id, cid):
             return jsonify({"error": "评论不存在"}), 404
         is_admin = request.current_user.get("is_admin")
         is_author = row["author"] == request.current_user["username"]
-        if not is_admin and not is_author:
-            return jsonify({"error": "只能删除自己的评论或由管理员删除"}), 403
+        post_row = conn.execute("SELECT author FROM posts WHERE id=?", (post_id,)).fetchone()
+        is_post_owner = bool(post_row and post_row["author"] == request.current_user["username"])
+        if not is_admin and not is_author and not is_post_owner:
+            return jsonify({"error": "只能删除自己的评论、帖子下的评论或由管理员删除"}), 403
         replies = conn.execute(
             "SELECT id, author, content, parent_id, reply_to, created_at "
             "FROM comments WHERE parent_id=? ORDER BY id ASC",
@@ -2539,6 +2572,7 @@ def _migrate():
                     likes INTEGER DEFAULT 0,
                     parent_id INTEGER DEFAULT 0,
                     reply_to TEXT DEFAULT '',
+                    pinned INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -2853,7 +2887,7 @@ def _migrate():
         col_sets = {}
         for table, cols in [
             ("posts", ["tags", "likes", "coins", "image_url", "images"]),
-            ("comments", ["likes", "parent_id", "reply_to"]),
+            ("comments", ["likes", "parent_id", "reply_to", "pinned"]),
             ("notifs", ["post_id"]),
             ("users", ["email", "is_admin", "token", "token_expires", "coins", "last_daily_coin",
                        "display_name", "bio", "avatar", "banner", "likes_public", "bookmarks_public",
